@@ -1,0 +1,6 @@
+/home/pajdox/Downloads/ass/build/CMakeFiles/ppp_proj01.dir
+/home/pajdox/Downloads/ass/build/CMakeFiles/data_generator.dir
+/home/pajdox/Downloads/ass/build/CMakeFiles/test.dir
+/home/pajdox/Downloads/ass/build/CMakeFiles/pack.dir
+/home/pajdox/Downloads/ass/build/CMakeFiles/edit_cache.dir
+/home/pajdox/Downloads/ass/build/CMakeFiles/rebuild_cache.dir

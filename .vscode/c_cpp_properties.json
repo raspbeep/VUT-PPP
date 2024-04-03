@@ -1,0 +1,20 @@
+{
+    
+    "configurations": [
+        {
+            "name": "Linux",
+            "compilerPath": "/usr/bin/g++",
+            "intelliSenseMode": "linux-gcc-x64",
+            "includePath": [
+                "${workspaceFolder}/sources",
+                "${workspaceFolder}/3rdparty",
+                "/usr/lib/x86_64-linux-gnu/openmpi/include",
+                "/usr/include",
+                "/usr/include/hdf5/serial/"
+            ],
+            "cStandard": "gnu11",
+            "cppStandard": "gnu++17"
+        }
+    ],
+    "version": 4
+}
