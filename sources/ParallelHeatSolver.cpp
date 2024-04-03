@@ -8,6 +8,8 @@
  *          using MPI/OpenMP hybrid approach.
  *
  * @date    2024-02-23
+ * 
+ * @question Ktore vsetky ranky pustaju konstruktor? Je to iba root? Treba osetrovat ci sa napriklad datatype na celu domenu inicializuje iba na root ranku?
  */
 
 #include <algorithm>
@@ -121,12 +123,28 @@ void ParallelHeatSolver::initDataDistribution() {
     std::array tile_dims = {tile_size_x, tile_size_y};
     std::array start_arr = {0, 0};
     
-    MPI_Datatype tile_org_type{MPI_DATATYPE_NULL};
+    // datatypes to derive the resized types from
+    MPI_Datatype tile_org_type_float{MPI_DATATYPE_NULL};
+    MPI_Datatype tile_org_type_int{MPI_DATATYPE_NULL};
 
-    MPI_Type_create_subarray(2, domain_dims.data(), tile_dims.data(), start_arr.data(), MPI_ORDER_C, MPI_FLOAT, &tile_org_type);
-    MPI_Type_create_resized(tile_org_type, 0, 1 * sizeof(float), &tile_type);
-    MPI_Type_commit(&tile_type);
+    // global subarray float type for sending a tile from the root rank
+    MPI_Type_create_subarray(2, domain_dims.data(), tile_dims.data(), start_arr.data(), MPI_ORDER_C, MPI_FLOAT, &tile_org_type_float);
+    MPI_Type_create_resized(tile_org_type_float, 0, 1 * sizeof(float), &global_tile_type_float);
+    MPI_Type_commit(&global_tile_type_float);
+
+    // global subarray int type for sending a tile from the root rank
+    MPI_Type_create_subarray(2, domain_dims.data(), tile_dims.data(), start_arr.data(), MPI_ORDER_C, MPI_INT, &tile_org_type_int);
+    MPI_Type_create_resized(tile_org_type_int, 0, 1 * sizeof(float), &global_tile_type_int);
+    MPI_Type_commit(&global_tile_type_int);
   }
+
+  // local contiguous float type for receiving
+  MPI_Type_contiguous(tile_size_x * tile_size_y, MPI_FLOAT, &local_tile_type_float);
+  MPI_Type_commit(&local_tile_type_float);
+
+  // local contiguous int type for receiving
+  MPI_Type_contiguous(tile_size_x * tile_size_y, MPI_INT, &local_tile_type_int);
+  MPI_Type_commit(&local_tile_type_int);
 
   // counts = nx * ny = world_size = n_processors
   counts = std::make_unique<int[]>(total_size);
@@ -136,30 +154,23 @@ void ParallelHeatSolver::initDataDistribution() {
   for (int i=0; i < total_size; i++) {
       displacements[i] = i * tile_size_x * tile_size_y + ((i * tile_size_x) % global_edge_size);
   }
-
-  // halo row int
-  MPI_Type_contiguous(tile_size_x * 2, MPI_INT, &local_row_int);
-  MPI_Type_commit(&local_row_int);
-  
-  // halo row float
-  MPI_Type_contiguous(tile_size_x * 2, MPI_FLOAT, &local_row_float);
-  MPI_Type_commit(&local_row_float);
-
-  // halo column int
-  MPI_Type_vector(tile_size_y, 2, tile_size_x, MPI_INT, &local_col_int);
-  MPI_Type_commit(&local_col_int);
-
-  // halo column float
-  MPI_Type_vector(tile_size_y, 2, tile_size_x, MPI_INT, &local_col_float);
-  MPI_Type_commit(&local_col_float);
 }
 
 void ParallelHeatSolver::deinitDataDistribution() {
 /**********************************************************************************************************************/
 /*                       Deinitialize variables and MPI datatypes for data distribution.                              */
 /**********************************************************************************************************************/
+  
+  if(mWorldRank == 0) {
+    MPI_Type_free(&global_tile_type_float);
+    MPI_Type_free(&global_tile_type_int);
+  }
 
-
+  MPI_Type_free(&local_tile_type_float);
+  MPI_Type_free(&local_tile_type_int);
+  
+  // TODO: what variables?
+  // clear and shrink counts and displacements?
 }
 
 void ParallelHeatSolver::allocLocalTiles() {
@@ -167,43 +178,83 @@ void ParallelHeatSolver::allocLocalTiles() {
 /*            Allocate local tiles for domain map (1x), domain parameters (1x) and domain temperature (2x).           */
 /*                                               Use AlignedAllocator.                                                */
 /**********************************************************************************************************************/
+  // TODO: maybe obsolete?
+  if (mWorldRank == 0) {
+    domain.resize(global_edge_size * global_edge_size);
+  }
+  
+  tile.resize(tile_size_x * tile_size_y);
+  tile_params.resize(tile_size_x * tile_size_y);
 
-
+  tile_temps[OLD].resize(tile_size_x * tile_size_y);
+  tile_temps[NEW].resize(tile_size_x * tile_size_y);
 }
 
 void ParallelHeatSolver::deallocLocalTiles() {
 /**********************************************************************************************************************/
 /*                                   Deallocate local tiles (may be empty).                                           */
 /**********************************************************************************************************************/
+  if (mWorldRank == 0) {
+    domain.clear();
+    domain.shrink_to_fit();
+  }
+  
+  tile.clear();
+  tile.shrink_to_fit();
 
+  tile_params.clear();
+  tile_params.shrink_to_fit();
 
+  tile_temps[OLD].clear();
+  tile_temps[OLD].shrink_to_fit();
+
+  tile_temps[NEW].clear();
+  tile_temps[NEW].shrink_to_fit();
 }
 
-void ParallelHeatSolver::initHaloExchange()
-{
+void ParallelHeatSolver::initHaloExchange() {
 /**********************************************************************************************************************/
 /*                            Initialize variables and MPI datatypes for halo exchange.                               */
 /*                    If mSimulationProps.isRunParallelRMA() flag is set to true, create RMA windows.                 */
 /**********************************************************************************************************************/
   if (mSimulationProps.isRunParallelP2P()) {
+    // halo row int
+    MPI_Type_contiguous(tile_size_x * 2, MPI_INT, &local_row_int);
+    MPI_Type_commit(&local_row_int);
+    
+    // halo row float
+    MPI_Type_contiguous(tile_size_x * 2, MPI_FLOAT, &local_row_float);
+    MPI_Type_commit(&local_row_float);
 
+    // halo column int
+    MPI_Type_vector(tile_size_y, 2, tile_size_x, MPI_INT, &local_col_int);
+    MPI_Type_commit(&local_col_int);
+
+    // halo column float
+    MPI_Type_vector(tile_size_y, 2, tile_size_x, MPI_INT, &local_col_float);
+    MPI_Type_commit(&local_col_float);
   } else if(mSimulationProps.isRunParallelRMA()) {
-
+    // TODO: RMA
   }
 }
 
-void ParallelHeatSolver::deinitHaloExchange()
-{
+void ParallelHeatSolver::deinitHaloExchange() {
 /**********************************************************************************************************************/
 /*                            Deinitialize variables and MPI datatypes for halo exchange.                             */
 /**********************************************************************************************************************/
-  
-  
+  if (mSimulationProps.isRunParallelP2P()) {
+    MPI_Type_free(&local_row_int);
+    MPI_Type_free(&local_row_float);
+    
+    MPI_Type_free(&local_col_int);
+    MPI_Type_free(&local_col_float);
+  } else if(mSimulationProps.isRunParallelRMA()) {
+    // TODO: RMA
+  }
 }
 
 template<typename T>
-void ParallelHeatSolver::scatterTiles(const T* globalData, T* localData)
-{
+void ParallelHeatSolver::scatterTiles(const T* globalData, T* localData) {
   static_assert(std::is_same_v<T, int> || std::is_same_v<T, float>, "Unsupported scatter datatype!");
 
 /**********************************************************************************************************************/
@@ -213,13 +264,14 @@ void ParallelHeatSolver::scatterTiles(const T* globalData, T* localData)
 /*  const MPI_Datatype globalTileType = std::is_same_v<T, int> ? globalFloatTileType : globalIntTileType;             */
 /*  const MPI_Datatype localTileType  = std::is_same_v<T, int> ? localIntTileType    : localfloatTileType;            */
 /**********************************************************************************************************************/
-
+  const MPI_Datatype global_tile_type = std::is_same_v<T, int> ? global_tile_type_int : global_tile_type_float;
+  const MPI_Datatype local_tile_type  = std::is_same_v<T, int> ? local_tile_type_int  : local_row_float;
   
+  MPI_Scatterv(globalData, counts.get(), displacements.get(), global_tile_type, localData, 1, local_tile_type, 0, MPI_COMM_WORLD);
 }
 
 template<typename T>
-void ParallelHeatSolver::gatherTiles(const T* localData, T* globalData)
-{
+void ParallelHeatSolver::gatherTiles(const T* localData, T* globalData) {
   static_assert(std::is_same_v<T, int> || std::is_same_v<T, float>, "Unsupported gather datatype!");
 
 /**********************************************************************************************************************/
@@ -229,12 +281,13 @@ void ParallelHeatSolver::gatherTiles(const T* localData, T* globalData)
 /*  const MPI_Datatype localTileType  = std::is_same_v<T, int> ? localIntTileType    : localfloatTileType;            */
 /*  const MPI_Datatype globalTileType = std::is_same_v<T, int> ? globalFloatTileType : globalIntTileType;             */
 /**********************************************************************************************************************/
+  const MPI_Datatype global_tile_type = std::is_same_v<T, int> ? global_tile_type_int : global_tile_type_float;
+  const MPI_Datatype local_tile_type  = std::is_same_v<T, int> ? local_tile_type_int  : local_tile_type_float;
 
-
+  MPI_Gatherv(localData, 1, local_tile_type, globalData, counts.get(), displacements.get(), global_tile_type, 0, MPI_COMM_WORLD);
 }
 
-void ParallelHeatSolver::computeHaloZones(const float* oldTemp, float* newTemp)
-{
+void ParallelHeatSolver::computeHaloZones(const float* oldTemp, float* newTemp) {
 /**********************************************************************************************************************/
 /*  Compute new temperatures in halo zones, so that copy operations can be overlapped with inner region computation.  */
 /*                        Use updateTile method to compute new temperatures in halo zones.                            */
@@ -243,25 +296,21 @@ void ParallelHeatSolver::computeHaloZones(const float* oldTemp, float* newTemp)
   
 }
 
-void ParallelHeatSolver::startHaloExchangeP2P(float* localData, std::array<MPI_Request, 8>& requests)
-{
+void ParallelHeatSolver::startHaloExchangeP2P(float* localData, std::array<MPI_Request, 8>& requests) {
 /**********************************************************************************************************************/
 /*                       Start the non-blocking halo zones exchange using P2P communication.                          */
 /*                         Use the requests array to return the requests from the function.                           */
 /*                            Don't forget to set the empty requests to MPI_REQUEST_NULL.                             */
 /**********************************************************************************************************************/
-
-
+  
 }
 
-void ParallelHeatSolver::startHaloExchangeRMA(float* localData, MPI_Win window)
-{
+void ParallelHeatSolver::startHaloExchangeRMA(float* localData, MPI_Win window) {
 /**********************************************************************************************************************/
 /*                       Start the non-blocking halo zones exchange using RMA communication.                          */
 /*                   Do not forget that you put/get the values to/from the target's opposite side                     */
 /**********************************************************************************************************************/
-  
-  
+  // TODO: RMA
 }
 
 void ParallelHeatSolver::awaitHaloExchangeP2P(std::array<MPI_Request, 8>& requests)

@@ -36,6 +36,9 @@ enum ND {
   D  = 7
 };
 
+constexpr int OLD = 0;
+constexpr int NEW = 1;
+
 /**
  * @brief The ParallelHeatSolver class implements parallel MPI based heat
  *        equation solver in 2D using 2D block grid decomposition.
@@ -92,13 +95,26 @@ class ParallelHeatSolver : public HeatSolverBase
     int tile_size_x, tile_size_y;
     int tile_size_with_halo_x, tile_size_with_halo_y;
 
-    MPI_Datatype tile_type;
+    MPI_Datatype global_tile_type_float;
+    MPI_Datatype global_tile_type_int;
+    
+    MPI_Datatype local_tile_type_int;
+    MPI_Datatype local_tile_type_float;
     
     MPI_Datatype local_row_int;
     MPI_Datatype local_row_float;
     
     MPI_Datatype local_col_int;
     MPI_Datatype local_col_float;
+
+    AlignedAllocator<int> intAllocator;
+    AlignedAllocator<float> floatAllocator;
+
+    std::vector<float, AlignedAllocator<float>> domain;
+
+    std::vector<float, AlignedAllocator<float>> tile;
+    std::vector<float, AlignedAllocator<float>> tile_params;
+    std::array<std::vector<float, AlignedAllocator<float>>, 2> tile_temps;
 
   private:
     /**
