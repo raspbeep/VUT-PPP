@@ -17,6 +17,8 @@
 #include <string_view>
 #include <vector>
 
+#include <fmt/format.h>
+
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #ifdef _MSC_VER
 # define STBI_MSC_SECURE_CRT
@@ -33,17 +35,12 @@ void printArray2d(const float* array, std::size_t edgeSize)
 {
   for(std::size_t i = 0; i < edgeSize; ++i)
   {
-    std::cout << "[Row " << i << "]: ";
-
-    std::cout << std::scientific;
+    fmt::print("[Row {}]: ", i);
     
     for(std::size_t j = 0; j < edgeSize; ++j)
     {
-      std::cout << array[i * edgeSize + j] << " ";
+      fmt::print("{}{}", array[i * edgeSize + j], (j + 1 < edgeSize) ? " " : "\n");
     }
-    std::cout << std::endl;
-
-    std::cout << std::defaultfloat;
   }
 }
 
@@ -136,5 +133,5 @@ std::pair<bool, ErrorInfo> verifyResults(const float* result,
     }
   }
 
-  return std::make_pair(errorInfo.maxError > epsilon, errorInfo);
+  return std::make_pair(errorInfo.maxError <= epsilon, errorInfo);
 }

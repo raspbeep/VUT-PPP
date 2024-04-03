@@ -22,7 +22,6 @@
  * @details     This is the data generator for PPP 2024 projects
  */
 
-#include <cstdlib>
 #include <memory>
 #include <string>
 
@@ -30,6 +29,7 @@
 #include <hdf5_hl.h>
 
 #include <cxxopts.hpp>
+#include <fmt/format.h>
 
 //----------------------------------------------------------------------------//
 //------------------------- Data types declarations --------------------------//
@@ -41,13 +41,13 @@
  */
 struct TParameters
 {
-  std::string FileName;
-  std::size_t Size;
-  float       HeaterTemperature;
-  float       CoolerTemperature;
+  std::string fileName{};
+  std::size_t size{};
+  float       heaterTemperature{};
+  float       coolerTemperature{};
 
-  float       dt;
-  float       dx;
+  float       dt{};
+  float       dx{};
 };// end of Parameters
 //------------------------------------------------------------------------------
 
@@ -57,27 +57,27 @@ struct TParameters
  */
 struct TMediumParameters
 {
-  float k_s;     // W/(m K)  Thermal conductivity - conduction ciefficient
-  float rho;     // kg.m^3   Density
-  float Cp;      // J/kg K   Spefic heat constant pressure
-  float alpha;   // m^2/s    Diffusivity
+  float k_s{};     // W/(m K)  Thermal conductivity - conduction ciefficient
+  float rho{};     // kg.m^3   Density
+  float Cp{};      // J/kg K   Spefic heat constant pressure
+  float alpha{};   // m^2/s    Diffusivity
 
   TMediumParameters(const float k_s, const float rho, const float Cp)
-                   : k_s(k_s), rho(rho), Cp(Cp)
+  : k_s(k_s), rho(rho), Cp(Cp)
   {
     alpha = k_s / (rho * Cp);
   }
 
   // Calculate coef F0 - heat diffusion parameter
-  inline float GetF0(const float dx, const float dt) const
+  float getF0(const float dx, const float dt) const
   {
     return alpha * dt / (dx * dx) ;
   }
 
   /// Check stability of the simulation for the medium
-  inline bool CheckStability(const float dx, const float dt) const
+  bool checkStability(const float dx, const float dt) const
   {
-    return (GetF0(dx, dt) < 0.25f);
+    return (getF0(dx, dt) < 0.25f);
   }
 };// end of TMediumParameters
 //------------------------------------------------------------------------------
@@ -86,14 +86,15 @@ struct TMediumParameters
 //-------------------------    Global variables        -----------------------//
 //----------------------------------------------------------------------------//
 
-constexpr std::size_t MaskSize       =  16;  // size of the mask
-constexpr float       RealDomainSize =  1.f; // length of the edge 1m
+constexpr std::size_t maskSize       =  16;  // size of the mask
+constexpr float       realDomainSize =  1.f; // length of the edge 1m
 
 
 ///  Basic mask of the cooler (0 - Air, 1 -aluminum, 2 - copper)
-int CoolerMask[MaskSize * MaskSize]
+int coolerMask[maskSize * maskSize]
+{
 //1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16
-{ 0, 0, 0, 0, 0, 2, 2, 2, 2, 2, 2, 0, 0, 0, 0, 0,   //16
+  0, 0, 0, 0, 0, 2, 2, 2, 2, 2, 2, 0, 0, 0, 0, 0,   //16
   0, 0, 0, 0, 0, 2, 2, 2, 2, 2, 2, 0, 0, 0, 0, 0,   //15
   0, 0, 0, 0, 2, 2, 2, 2, 2, 2, 2, 2, 0, 0, 0, 0,   //14
   0, 0, 0, 0, 1, 1, 2, 2, 2, 2, 1, 1, 0, 0, 0, 0,   //13
@@ -113,17 +114,17 @@ int CoolerMask[MaskSize * MaskSize]
 
 
 /// Parameters of the medium
-TParameters Parameters{};
+TParameters parameters{};
 
 /// Properties of Air
-TMediumParameters Air(0.0024f, 1.207f, 1006.1f);
+TMediumParameters air(0.0024f, 1.207f, 1006.1f);
 
 /// Properties of Aluminum
-TMediumParameters Aluminum(205.f, 2700.f, 910.f);
+TMediumParameters aluminum(205.f, 2700.f, 910.f);
 //Aluminum.SetValues()
 
 /// Properties of Copper
-TMediumParameters Copper(387.f, 8940.f, 380.f);
+TMediumParameters copper(387.f, 8940.f, 380.f);
 
 
 
@@ -132,16 +133,13 @@ TMediumParameters Copper(387.f, 8940.f, 380.f);
 //----------------------------------------------------------------------------//
 
 /// Set parameters
-void ParseCommandline(int argc, char** argv);
+void parseCommandline(int argc, char** argv);
 
 /// Generate data for the matrix
-void GenerateData(int DomainMap[], float DomainParameters[]);
+void generateData(int DomainMap[], float DomainParameters[]);
 
 /// Store data in the file
-void StoreData();
-
-// Get dx
-float Getdx();
+void storeData();
 
 //----------------------------------------------------------------------------//
 //------------------------- Function implementation  -------------------------//
@@ -152,9 +150,9 @@ float Getdx();
  * @param [in] argc
  * @param [in] argv
  */
-void ParseCommandline(int argc, char** argv)
+void parseCommandline(int argc, char** argv)
 {
-  cxxopts::Options options("data_generator", "creating a material properties file of the domain");
+  cxxopts::Options options("data_generator", "Program for creating a material properties file of the domain");
 
   options.add_options()
     ("o,output", "Output file name with the medium data",
@@ -170,40 +168,40 @@ void ParseCommandline(int argc, char** argv)
 
     if (result.count("help"))
     {
-      std::printf("%s", options.help().c_str());
+      fmt::print("{}\n", options.help());
       std::exit(EXIT_SUCCESS);
     }
 
-    Parameters.Size              = result["size"].as<std::size_t>();
-    Parameters.FileName          = result["output"].as<std::string>();
-    Parameters.HeaterTemperature = result["heater-temperature"].as<float>();
-    Parameters.CoolerTemperature = result["air-temperature"].as<float>();
+    parameters.size              = result["size"].as<std::size_t>();
+    parameters.fileName          = result["output"].as<std::string>();
+    parameters.heaterTemperature = result["heater-temperature"].as<float>();
+    parameters.coolerTemperature = result["air-temperature"].as<float>();
 
-    if (!((Parameters.Size != 0) && !(Parameters.Size & (Parameters.Size - 1))))
+    if (!((parameters.size != 0) && !(parameters.size & (parameters.size - 1))))
     {
       throw std::runtime_error("The size is not power of two");
     }
 
-    if (Parameters.Size < 16)
+    if (parameters.size < 16)
     {
       throw std::runtime_error("Minimum size is 16");
     }
   }
   catch (const std::exception& e)
   {
-    std::printf("Error: %s\n\n", e.what());
-    std::printf("%s", options.help().c_str());
+    fmt::print(stderr, "Error: {}\n\n", e.what());
+    fmt::print(stderr, "{}\n", options.help());
     std::exit(EXIT_FAILURE);
   }
 
-  if (Parameters.Size < 128)        Parameters.dt = 0.1f;
-  else if (Parameters.Size < 512)   Parameters.dt = 0.01f;
-  else if (Parameters.Size < 2048)  Parameters.dt = 0.001f;
-  else if (Parameters.Size < 16384) Parameters.dt = 0.0001f;
-  else                              Parameters.dt = 0.00001f;
+  if (parameters.size < 128)        parameters.dt = 0.1f;
+  else if (parameters.size < 512)   parameters.dt = 0.01f;
+  else if (parameters.size < 2048)  parameters.dt = 0.001f;
+  else if (parameters.size < 16384) parameters.dt = 0.0001f;
+  else                              parameters.dt = 0.00001f;
 
-  Parameters.dx = RealDomainSize / static_cast<float>(Parameters.Size);
-}// end of ParseCommandline
+  parameters.dx = realDomainSize / static_cast<float>(parameters.size);
+}// end of parseCommandline
 //------------------------------------------------------------------------------
 
 
@@ -213,27 +211,27 @@ void ParseCommandline(int argc, char** argv)
  * @param [out] DomainParameters
  * @param [out] InitialTemperature
  */
-void GenerateData(int * DomainMap, float * DomainParameters, float * InitialTemperature)
+void generateData(int* domainMap, float* domainParameters, float* initialTemperature)
 {
-  const std::size_t ScaleFactor = Parameters.Size / MaskSize;
+  const std::size_t scaleFactor = parameters.size / maskSize;
 
   // set the global medium map
-  #pragma omp parallel
+# pragma omp parallel
   {
-    #pragma omp for
-    for (std::size_t m_y = 0; m_y < MaskSize; m_y++)
+#   pragma omp for
+    for (std::size_t m_y = 0; m_y < maskSize; m_y++)
     {
-      for (std::size_t m_x = 0; m_x < MaskSize; m_x++)
+      for (std::size_t m_x = 0; m_x < maskSize; m_x++)
       {
         // Scale
-        for (std::size_t y = 0; y < ScaleFactor; y++)
+        for (std::size_t y = 0; y < scaleFactor; y++)
         {
-          for (std::size_t x = 0; x < ScaleFactor; x++)
+          for (std::size_t x = 0; x < scaleFactor; x++)
           {
-            std::size_t global = (m_y * ScaleFactor + y)* Parameters.Size + (m_x * ScaleFactor + x);
-            std::size_t local = m_y * MaskSize + m_x;
+            std::size_t global = (m_y * scaleFactor + y)* parameters.size + (m_x * scaleFactor + x);
+            std::size_t local = m_y * maskSize + m_x;
 
-            DomainMap[global]  = CoolerMask[local];
+            domainMap[global]  = coolerMask[local];
             //
           }// x
         }// y
@@ -241,37 +239,37 @@ void GenerateData(int * DomainMap, float * DomainParameters, float * InitialTemp
     }// m_y
 
     // set medium properties
-    #pragma omp for
-    for (std::size_t y = 0; y < Parameters.Size; y++)
+#   pragma omp for
+    for (std::size_t y = 0; y < parameters.size; y++)
     {
-      for (std::size_t x = 0; x < Parameters.Size; x++)
+      for (std::size_t x = 0; x < parameters.size; x++)
       {
-        switch(DomainMap[y * Parameters.Size + x])
+        switch(domainMap[y * parameters.size + x])
         {
-          case 0: DomainParameters[y * Parameters.Size + x] = Air.GetF0(Parameters.dx, Parameters.dt); break;
-          case 1: DomainParameters[y * Parameters.Size + x] = Aluminum.GetF0(Parameters.dx, Parameters.dt); break;
-          case 2: DomainParameters[y * Parameters.Size + x] = Copper.GetF0(Parameters.dx, Parameters.dt); break;
+          case 0: domainParameters[y * parameters.size + x] = air.getF0(parameters.dx, parameters.dt); break;
+          case 1: domainParameters[y * parameters.size + x] = aluminum.getF0(parameters.dx, parameters.dt); break;
+          case 2: domainParameters[y * parameters.size + x] = copper.getF0(parameters.dx, parameters.dt); break;
         }
       }
     }
 
     // set initial temperature (skip first two lines)  - that's the heater
-    #pragma omp for
-    for (std::size_t y = 2; y < Parameters.Size; y++)
+#   pragma omp for
+    for (std::size_t y = 2; y < parameters.size; y++)
     {
-      for (std::size_t x = 0; x < Parameters.Size; x++)
+      for (std::size_t x = 0; x < parameters.size; x++)
       {
-        InitialTemperature[y * Parameters.Size + x] = Parameters.CoolerTemperature;
+        initialTemperature[y * parameters.size + x] = parameters.coolerTemperature;
       }
     }
   }// end of parallel
 
   //set temperature for heater
-  for (std::size_t x = 0; x < 2*Parameters.Size; x++)
+  for (std::size_t x = 0; x < 2 * parameters.size; x++)
   { // where is cooper, set Heater
-    InitialTemperature[x] = (DomainMap[x] == 2) ? Parameters.HeaterTemperature : Parameters.CoolerTemperature;
+    initialTemperature[x] = (domainMap[x] == 2) ? parameters.heaterTemperature : parameters.coolerTemperature;
   }
-}// end of GenerateData
+}// end of generateData
 //------------------------------------------------------------------------------
 
 
@@ -281,24 +279,24 @@ void GenerateData(int * DomainMap, float * DomainParameters, float * InitialTemp
  * @param [in] DomainParameters
  * @param [in] InitialTemperature
  */
-void StoreData(const int * DomainMap, const float * DomainParameters, const float * InitialTemperature)
+void storeData(const int* domainMap, const float* domainParameters, const float* initialTemperature)
 {
-  hid_t HDF5_File = H5Fcreate(Parameters.FileName.c_str(), H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
+  hid_t file = H5Fcreate(parameters.fileName.c_str(), H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
 
-  hsize_t ScalarSize[1] {1};
-  hsize_t DomainSize[2] {Parameters.Size,Parameters.Size};
+  hsize_t scalarSize[1] {1};
+  hsize_t domainSize[2] {parameters.size,parameters.size};
 
-  long Size = static_cast<long>(Parameters.Size);
+  long size = static_cast<long>(parameters.size);
 
-  H5LTmake_dataset_long(HDF5_File,  "/EdgeSize",           1, ScalarSize, &Size);
-  H5LTmake_dataset_float(HDF5_File, "/CoolerTemp",         1, ScalarSize, &Parameters.CoolerTemperature);
-  H5LTmake_dataset_float(HDF5_File, "/HeaterTemp",         1, ScalarSize, &Parameters.HeaterTemperature);
-  H5LTmake_dataset_int (HDF5_File,  "/DomainMap",          2, DomainSize, DomainMap);
-  H5LTmake_dataset_float(HDF5_File, "/DomainParameters",   2, DomainSize, DomainParameters);
-  H5LTmake_dataset_float(HDF5_File, "/InitialTemperature", 2, DomainSize, InitialTemperature);
+  H5LTmake_dataset_long(file,  "/EdgeSize",           1, scalarSize, &size);
+  H5LTmake_dataset_float(file, "/CoolerTemp",         1, scalarSize, &parameters.coolerTemperature);
+  H5LTmake_dataset_float(file, "/HeaterTemp",         1, scalarSize, &parameters.heaterTemperature);
+  H5LTmake_dataset_int(file,   "/DomainMap",          2, domainSize, domainMap);
+  H5LTmake_dataset_float(file, "/DomainParameters",   2, domainSize, domainParameters);
+  H5LTmake_dataset_float(file, "/InitialTemperature", 2, domainSize, initialTemperature);
 
-  H5Fclose(HDF5_File);
-}// end of StoreData
+  H5Fclose(file);
+}// end of storeData
 //------------------------------------------------------------------------------
 
 /**
@@ -309,36 +307,41 @@ void StoreData(const int * DomainMap, const float * DomainParameters, const floa
  */
 int main(int argc, char** argv)
 {
-  ParseCommandline(argc,argv);
+  parseCommandline(argc,argv);
 
-  std::printf("---------------------------------------------\n");
-  std::printf("--------- PPP 2020 data generator -----------\n");
-  std::printf("File name  : %s\n",   Parameters.FileName.c_str());
-  std::printf("Size       : [%zu,%zu]\n",   Parameters.Size, Parameters.Size);
-  std::printf("Heater temp: %.2fC\n", Parameters.HeaterTemperature);
-  std::printf("Cooler temp: %.2f\n", Parameters.CoolerTemperature);
+  fmt::print("---------------------------------------------\n");
+  fmt::print("--------- PPP 2020 data generator -----------\n");
+  fmt::print("---------------------------------------------\n");
+  fmt::print("File name:   {}\n", parameters.fileName);
+  fmt::print("Size:        [{},{}]\n", parameters.size, parameters.size);
+  fmt::print("Heater temp: {:.2f} °C\n", parameters.heaterTemperature);
+  fmt::print("Cooler temp: {:.2f}\n", parameters.coolerTemperature);
 
-  auto DomainMap          = std::make_unique<int[]>(Parameters.Size * Parameters.Size);
-  auto DomainParameters   = std::make_unique<float[]>(Parameters.Size * Parameters.Size);
-  auto InitialTemperature = std::make_unique<float[]>(Parameters.Size * Parameters.Size);
+  auto domainMap          = std::make_unique<int[]>(parameters.size * parameters.size);
+  auto domainParameters   = std::make_unique<float[]>(parameters.size * parameters.size);
+  auto initialTemperature = std::make_unique<float[]>(parameters.size * parameters.size);
 
-  std::printf("Air      : %f\n", Air.GetF0(Parameters.dx,Parameters.dt));
-  std::printf("Aluminum : %f\n", Aluminum.GetF0(Parameters.dx,Parameters.dt));
-  std::printf("Copper   : %f\n", Copper.GetF0(Parameters.dx,Parameters.dt));
+  fmt::print("Air:         {:f}\n", air.getF0(parameters.dx,parameters.dt));
+  fmt::print("Aluminum:    {:f}\n", aluminum.getF0(parameters.dx,parameters.dt));
+  fmt::print("Copper:      {:f}\n", copper.getF0(parameters.dx,parameters.dt));
 
-  if (!(Copper.CheckStability(Parameters.dx,Parameters.dt) &&
-      Aluminum.CheckStability(Parameters.dx,Parameters.dt) &&
-      Air.CheckStability(Parameters.dx,Parameters.dt)))
+  if (!(copper.checkStability(parameters.dx,parameters.dt) &&
+        aluminum.checkStability(parameters.dx,parameters.dt) &&
+        air.checkStability(parameters.dx,parameters.dt)))
   {
-    std::printf("dt and dx are too big, simulation may be unstable! \n");
+    fmt::print("dt and dx are too big, simulation may be unstable!\n");
   }
 
-  std::printf("Generating data ...");
-  GenerateData(DomainMap.get(), DomainParameters.get(), InitialTemperature.get());
-  std::printf("Done\n");
+  fmt::print("---------------------------------------------\n");
 
-  std::printf("Storing data ...");
-  StoreData(DomainMap.get(), DomainParameters.get(), InitialTemperature.get());
-  std::printf("Done\n");
+  fmt::print("Generating data... ");
+  generateData(domainMap.get(), domainParameters.get(), initialTemperature.get());
+  fmt::print("done\n");
+
+  fmt::print("Storing data... ");
+  storeData(domainMap.get(), domainParameters.get(), initialTemperature.get());
+  fmt::print("done\n");
+
+  fmt::print("---------------------------------------------\n");
 }// end of main
 //------------------------------------------------------------------------------

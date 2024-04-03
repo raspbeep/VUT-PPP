@@ -10,6 +10,12 @@
  * @date    2024-02-23
  * 
  * @question Ktore vsetky ranky pustaju konstruktor? Je to iba root? Treba osetrovat ci sa napriklad datatype na celu domenu inicializuje iba na root ranku?
+ *  
+ * @question Co sa ma diat vo funkciach ako deallocLocalTiles? AFAIK su tam iba arrays ktore sa dealokuju podla Allocator, ktory by to mal robit automaticky.
+ * @question Preco ma updateTile() v komentari minimalny offset >=2?
+ * @question V computeHaloZones(), je tam "Take care not to compute some regions twice" kvoli efektivite alebo konzistencii?
+ * @question Ktory je center column celej domeny? Ak mame edgeSize vzdy mocninu 2, tak je to lavy alebo pravy?
+ * @question V startHaloExchangeP2P(), ocakava sa, ze bude mat localData rozmery (tile_size_x + haloSize) x (tile_size_y + haloSize)?
  */
 
 #include <algorithm>
@@ -69,11 +75,11 @@ void ParallelHeatSolver::initGridTopology() {
   mSimulationProps.getDecompGrid(nx, ny);
   total_size = nx * ny;
 
-  dims.resize(2);
   std::vector<int> periods = {0, 0};
   switch (mSimulationProps.getDecomposition()) {
     case SimulationProperties::Decomposition::d1:
-      dims[0] = nx; dims[1] = ny;
+      n_dims = 1;
+      dims[0] = nx; dims[1] = 0;
       break;
     // case SimulationProperties::Decomposition::d2:
     //   if (nx == ny) {
@@ -85,17 +91,13 @@ void ParallelHeatSolver::initGridTopology() {
     default:
       break;
   }
-  MPI_Cart_create(MPI_COMM_WORLD, 2, dims.data(), periods.data(), 1, &cart_comm);
-  cart_coords.resize(2);
+  MPI_Cart_create(MPI_COMM_WORLD, n_dims, dims.data(), periods.data(), 1, &cart_comm);
   MPI_Comm_rank(cart_comm, &cart_rank);
-  MPI_Cart_coords(cart_comm, cart_rank, 2, cart_coords.data());
-  // calculate neighbors
-  neighbors.resize(8);
-  MPI_Cart_shift(cart_comm, 0, 1, &neighbors[ND::L], &neighbors[ND::R]);
-  MPI_Cart_shift(cart_comm, 0, 2, &neighbors[ND::LL], &neighbors[ND::RR]);
-  MPI_Cart_shift(cart_comm, 1, 1, &neighbors[ND::U], &neighbors[ND::D]);
-  MPI_Cart_shift(cart_comm, 1, 2, &neighbors[ND::UU], &neighbors[ND::DD]);
+  MPI_Cart_coords(cart_comm, cart_rank, n_dims, cart_coords.data());
   
+  // calculate neighbors, MPI automatically assigns MPI_PROC_NULL
+  MPI_Cart_shift(cart_comm, 0, 1, &neighbors[ND::W], &neighbors[ND::E]);
+  MPI_Cart_shift(cart_comm, 1, 1, &neighbors[ND::N], &neighbors[ND::S]);
   // TODO: create communicator for parallel calculation of the average temp
 }
 
@@ -104,7 +106,8 @@ void ParallelHeatSolver::deinitGridTopology() {
 /*      Deinitialize 2D grid topology and the middle column average temperature computation communicator              */
 /**********************************************************************************************************************/
   MPI_Comm_free(&cart_comm);
-  MPI_Comm_free(&center_col);
+  // TODO: center col
+  // MPI_Comm_free(&center_col);
 }
 
 void ParallelHeatSolver::initDataDistribution() {
@@ -116,6 +119,9 @@ void ParallelHeatSolver::initDataDistribution() {
   // calculate the local tile size
   tile_size_x = global_edge_size / dims[0];
   tile_size_y = global_edge_size / dims[1];
+
+  tile_size_with_halo_x = tile_size_x + 2 * haloZoneSize;
+  tile_size_with_halo_y = tile_size_y + 2 * haloZoneSize;
 
   // only root needs the tile type
   if (mWorldRank == 0) {
@@ -134,16 +140,23 @@ void ParallelHeatSolver::initDataDistribution() {
 
     // global subarray int type for sending a tile from the root rank
     MPI_Type_create_subarray(2, domain_dims.data(), tile_dims.data(), start_arr.data(), MPI_ORDER_C, MPI_INT, &tile_org_type_int);
-    MPI_Type_create_resized(tile_org_type_int, 0, 1 * sizeof(float), &global_tile_type_int);
+    MPI_Type_create_resized(tile_org_type_int, 0, 1 * sizeof(int), &global_tile_type_int);
     MPI_Type_commit(&global_tile_type_int);
+
+    MPI_Type_free(&tile_org_type_float);
+    MPI_Type_free(&tile_org_type_int);
   }
 
-  // local contiguous float type for receiving
-  MPI_Type_contiguous(tile_size_x * tile_size_y, MPI_FLOAT, &local_tile_type_float);
+  // tile with a border of two around on the edges
+  local_tile_with_halo_dims = {tile_size_with_halo_x, tile_size_with_halo_y};
+  // original tile size for receiving
+  std::array local_tile_dims = {tile_size_x, tile_size_y};
+  std::array<int, 2> start_arr = {haloZoneSize, haloZoneSize};
+  
+  MPI_Type_create_subarray(2, local_tile_with_halo_dims.data(), local_tile_dims.data(), start_arr.data(), MPI_ORDER_C, MPI_FLOAT, &local_tile_type_float);
   MPI_Type_commit(&local_tile_type_float);
 
-  // local contiguous int type for receiving
-  MPI_Type_contiguous(tile_size_x * tile_size_y, MPI_INT, &local_tile_type_int);
+  MPI_Type_create_subarray(2, local_tile_with_halo_dims.data(), local_tile_dims.data(), start_arr.data(), MPI_ORDER_C, MPI_INT, &local_tile_type_int);
   MPI_Type_commit(&local_tile_type_int);
 
   // counts = nx * ny = world_size = n_processors
@@ -183,7 +196,7 @@ void ParallelHeatSolver::allocLocalTiles() {
     domain.resize(global_edge_size * global_edge_size);
   }
   
-  tile.resize(tile_size_x * tile_size_y);
+  tile_map.resize(tile_size_x * tile_size_y);
   tile_params.resize(tile_size_x * tile_size_y);
 
   tile_temps[OLD].resize(tile_size_x * tile_size_y);
@@ -194,22 +207,7 @@ void ParallelHeatSolver::deallocLocalTiles() {
 /**********************************************************************************************************************/
 /*                                   Deallocate local tiles (may be empty).                                           */
 /**********************************************************************************************************************/
-  if (mWorldRank == 0) {
-    domain.clear();
-    domain.shrink_to_fit();
-  }
-  
-  tile.clear();
-  tile.shrink_to_fit();
-
-  tile_params.clear();
-  tile_params.shrink_to_fit();
-
-  tile_temps[OLD].clear();
-  tile_temps[OLD].shrink_to_fit();
-
-  tile_temps[NEW].clear();
-  tile_temps[NEW].shrink_to_fit();
+  // AlignedAllocator takes care of
 }
 
 void ParallelHeatSolver::initHaloExchange() {
@@ -218,21 +216,49 @@ void ParallelHeatSolver::initHaloExchange() {
 /*                    If mSimulationProps.isRunParallelRMA() flag is set to true, create RMA windows.                 */
 /**********************************************************************************************************************/
   if (mSimulationProps.isRunParallelP2P()) {
-    // halo row int
-    MPI_Type_contiguous(tile_size_x * 2, MPI_INT, &local_row_int);
-    MPI_Type_commit(&local_row_int);
+    // all are subarrays in the local tile of (tile_size_with_halo_x * tile_size_with_halo_y)
+    // size of the local tile with halo is local_tile_with_halo_dims
+
+    std::array<int, 2> halo_start_up    = {haloZoneSize, 0};
+    std::array<int, 2> halo_start_down  = {haloZoneSize, tile_size_y + haloZoneSize};
+    std::array<int, 2> halo_start_left  = {0, haloZoneSize};
+    std::array<int, 2> halo_start_right = {tile_size_x + haloZoneSize, haloZoneSize};
+
+    std::array<int, 2> halo_dims_row    =  {tile_size_x, haloZoneSize};
+    std::array<int, 2> halo_dims_col    =  {haloZoneSize, tile_size_y};
+
+    // halo row up int
+    MPI_Type_create_subarray(2, local_tile_with_halo_dims.data(), halo_dims_row.data(), halo_start_up.data(), MPI_ORDER_C, MPI_INT, &halo_row_up_type_int);
+    MPI_Type_commit(&halo_row_up_type_int);
+
+    // halo row down int
+    MPI_Type_create_subarray(2, local_tile_with_halo_dims.data(), halo_dims_row.data(), halo_start_down.data(), MPI_ORDER_C, MPI_INT, &halo_row_down_type_int);
+    MPI_Type_commit(&halo_row_down_type_int);
     
-    // halo row float
-    MPI_Type_contiguous(tile_size_x * 2, MPI_FLOAT, &local_row_float);
-    MPI_Type_commit(&local_row_float);
+    // halo row up float
+    MPI_Type_create_subarray(2, local_tile_with_halo_dims.data(), halo_dims_row.data(), halo_start_up.data(), MPI_ORDER_C, MPI_FLOAT, &halo_row_up_type_float);
+    MPI_Type_commit(&halo_row_up_type_float);
 
-    // halo column int
-    MPI_Type_vector(tile_size_y, 2, tile_size_x, MPI_INT, &local_col_int);
-    MPI_Type_commit(&local_col_int);
+    // halo row down float
+    MPI_Type_create_subarray(2, local_tile_with_halo_dims.data(), halo_dims_row.data(), halo_start_down.data(), MPI_ORDER_C, MPI_FLOAT, &halo_row_down_type_float);
+    MPI_Type_commit(&halo_row_down_type_float);
 
-    // halo column float
-    MPI_Type_vector(tile_size_y, 2, tile_size_x, MPI_INT, &local_col_float);
-    MPI_Type_commit(&local_col_float);
+    // halo col left int
+    MPI_Type_create_subarray(2, local_tile_with_halo_dims.data(), halo_dims_col.data(), halo_start_left.data(), MPI_ORDER_C, MPI_INT, &halo_col_left_type_int);
+    MPI_Type_commit(&halo_col_left_type_int);
+
+    // halo col right int
+    MPI_Type_create_subarray(2, local_tile_with_halo_dims.data(), halo_dims_col.data(), halo_start_right.data(), MPI_ORDER_C, MPI_INT, &halo_col_right_type_int);
+    MPI_Type_commit(&halo_col_right_type_int);
+    
+    // halo col left float
+    MPI_Type_create_subarray(2, local_tile_with_halo_dims.data(), halo_dims_col.data(), halo_start_left.data(), MPI_ORDER_C, MPI_FLOAT, &halo_col_left_type_float);
+    MPI_Type_commit(&halo_col_left_type_float);
+
+    // halo col right float
+    MPI_Type_create_subarray(2, local_tile_with_halo_dims.data(), halo_dims_col.data(), halo_start_right.data(), MPI_ORDER_C, MPI_FLOAT, &halo_col_right_type_float);
+    MPI_Type_commit(&halo_col_right_type_float);
+
   } else if(mSimulationProps.isRunParallelRMA()) {
     // TODO: RMA
   }
@@ -243,11 +269,15 @@ void ParallelHeatSolver::deinitHaloExchange() {
 /*                            Deinitialize variables and MPI datatypes for halo exchange.                             */
 /**********************************************************************************************************************/
   if (mSimulationProps.isRunParallelP2P()) {
-    MPI_Type_free(&local_row_int);
-    MPI_Type_free(&local_row_float);
-    
-    MPI_Type_free(&local_col_int);
-    MPI_Type_free(&local_col_float);
+    MPI_Type_free(&halo_row_up_type_int);
+    MPI_Type_free(&halo_row_down_type_int);
+    MPI_Type_free(&halo_row_up_type_float);
+    MPI_Type_free(&halo_row_down_type_float);
+
+    MPI_Type_free(&halo_col_left_type_int);
+    MPI_Type_free(&halo_col_right_type_int);
+    MPI_Type_free(&halo_col_left_type_float);
+    MPI_Type_free(&halo_col_right_type_float);
   } else if(mSimulationProps.isRunParallelRMA()) {
     // TODO: RMA
   }
@@ -266,7 +296,7 @@ void ParallelHeatSolver::scatterTiles(const T* globalData, T* localData) {
 /**********************************************************************************************************************/
   const MPI_Datatype global_tile_type = std::is_same_v<T, int> ? global_tile_type_int : global_tile_type_float;
   const MPI_Datatype local_tile_type  = std::is_same_v<T, int> ? local_tile_type_int  : local_row_float;
-  
+  // TODO: Do I need scatterv?
   MPI_Scatterv(globalData, counts.get(), displacements.get(), global_tile_type, localData, 1, local_tile_type, 0, MPI_COMM_WORLD);
 }
 
@@ -283,7 +313,8 @@ void ParallelHeatSolver::gatherTiles(const T* localData, T* globalData) {
 /**********************************************************************************************************************/
   const MPI_Datatype global_tile_type = std::is_same_v<T, int> ? global_tile_type_int : global_tile_type_float;
   const MPI_Datatype local_tile_type  = std::is_same_v<T, int> ? local_tile_type_int  : local_tile_type_float;
-
+  
+  // TODO: Do I need scatterv?
   MPI_Gatherv(localData, 1, local_tile_type, globalData, counts.get(), displacements.get(), global_tile_type, 0, MPI_COMM_WORLD);
 }
 
@@ -294,8 +325,55 @@ void ParallelHeatSolver::computeHaloZones(const float* oldTemp, float* newTemp) 
 /*                             TAKE CARE NOT TO COMPUTE THE SAME AREAS TWICE                                          */
 /**********************************************************************************************************************/
   
+  // TODO: Possible off by one.
+  // in 1D decomp, the dims are (P), but the cart_coords of any tile is (_, 0) and we are checking for the last one
+  bool is_top = cart_coords[1] == 0;
+  bool is_bottom = cart_coords[1] == dims[1] - 1;
+  bool is_left = cart_coords[0] == 0;
+  bool is_right = cart_coords[0] == dims[0] - 1;
+  bool decomp_1d = mSimulationProps.getDecomposition() == SimulationProperties::Decomposition::d1;
+  
+  //       ________
+  //     __|______|___
+  //  __|__|______|__|__
+  // |  |  |      |  |  |
+  // |  |  |      |  |  |
+  // |__|__|______|__|__|
+  //    |__|______|__|
+  //       |______|
+
+  // in 1d decomp we do not exchange up and bottom halo zones
+  if (!is_top && !decomp_1d) {
+    updateTile(oldTemp, newTemp, tile_params.data(), tile_map.data(), haloZoneSize * 2, haloZoneSize, tile_size_x - (2 * haloZoneSize), haloZoneSize, tile_size_with_halo_x);
+  }
+  if (!is_bottom && !decomp_1d) {
+    updateTile(oldTemp, newTemp, tile_params.data(), tile_map.data(), haloZoneSize * 2, tile_size_y, tile_size_x - (2 * haloZoneSize), haloZoneSize, tile_size_with_halo_x);
+  }
+  if (!is_left) {
+    updateTile(oldTemp, newTemp, tile_params.data(), tile_map.data(), haloZoneSize, haloZoneSize * 2, haloZoneSize, tile_size_y - (2 * haloZoneSize), tile_size_with_halo_x);
+  }
+  if (!is_right) {
+    updateTile(oldTemp, newTemp, tile_params.data(), tile_map.data(), tile_size_x, haloZoneSize * 2, haloZoneSize, tile_size_y - (2 * haloZoneSize), tile_size_with_halo_x);
+  }
+
+  // small square tiles in the corners
+  // in 1d decomposition, all small squares are part of the border which we DO NOT compute
+  if (!is_top && !is_left && !decomp_1d) {
+    updateTile(oldTemp, newTemp, tile_params.data(), tile_map.data(), haloZoneSize, haloZoneSize, haloZoneSize, haloZoneSize, tile_size_with_halo_x);
+  }
+  if (!is_top && !is_right && !decomp_1d) {
+    updateTile(oldTemp, newTemp, tile_params.data(), tile_map.data(), tile_size_x, haloZoneSize, haloZoneSize, haloZoneSize, tile_size_with_halo_x);
+  }
+  if (!is_bottom && !is_left && !decomp_1d) {
+    updateTile(oldTemp, newTemp, tile_params.data(), tile_map.data(), haloZoneSize, tile_size_y, haloZoneSize, haloZoneSize, tile_size_with_halo_x);
+  }
+  if (!is_bottom && !is_right && !decomp_1d) {
+    updateTile(oldTemp, newTemp, tile_params.data(), tile_map.data(), tile_size_x, tile_size_y, haloZoneSize, haloZoneSize, tile_size_with_halo_x);
+  }
 }
 
+
+// local data should have size (tile_size_with_halo_x * tile_size_with_halo_y)
 void ParallelHeatSolver::startHaloExchangeP2P(float* localData, std::array<MPI_Request, 8>& requests) {
 /**********************************************************************************************************************/
 /*                       Start the non-blocking halo zones exchange using P2P communication.                          */
@@ -303,6 +381,21 @@ void ParallelHeatSolver::startHaloExchangeP2P(float* localData, std::array<MPI_R
 /*                            Don't forget to set the empty requests to MPI_REQUEST_NULL.                             */
 /**********************************************************************************************************************/
   
+  // left col float
+  MPI_Isend(localData, 1, halo_col_left_type_float, neighbors[ND::W], TO_W, cart_comm, &requests[0]);
+  MPI_Irecv(localData, 1, halo_col_right_type_float, neighbors[ND::E], FROM_E, cart_comm, &requests[4]);
+
+  // right col float
+  MPI_Isend(localData, 1, halo_col_right_type_float, neighbors[ND::E], TO_E, cart_comm, &requests[1]);
+  MPI_Irecv(localData, 1, halo_col_left_type_float, neighbors[ND::W], FROM_W, cart_comm, &requests[5]);
+
+  // up row float
+  MPI_Isend(localData, 1, halo_row_up_type_float, neighbors[ND::N], TO_N, cart_comm, &requests[2]);
+  MPI_Irecv(localData, 1, halo_row_down_type_float, neighbors[ND::S], FROM_S, cart_comm, &requests[6]);
+
+  // down row float
+  MPI_Isend(localData, 1, halo_row_down_type_float, neighbors[ND::S], TO_S, cart_comm, &requests[3]);
+  MPI_Irecv(localData, 1, halo_row_up_type_float, neighbors[ND::N], FROM_N, cart_comm, &requests[7]);
 }
 
 void ParallelHeatSolver::startHaloExchangeRMA(float* localData, MPI_Win window) {
@@ -313,17 +406,14 @@ void ParallelHeatSolver::startHaloExchangeRMA(float* localData, MPI_Win window) 
   // TODO: RMA
 }
 
-void ParallelHeatSolver::awaitHaloExchangeP2P(std::array<MPI_Request, 8>& requests)
-{
+void ParallelHeatSolver::awaitHaloExchangeP2P(std::array<MPI_Request, 8>& requests) {
 /**********************************************************************************************************************/
 /*                       Wait for all halo zone exchanges to finalize using P2P communication.                        */
 /**********************************************************************************************************************/
-
-  
+  MPI_Waitall(requests.size(), requests.data(), MPI_STATUSES_IGNORE);
 }
 
-void ParallelHeatSolver::awaitHaloExchangeRMA(MPI_Win window)
-{
+void ParallelHeatSolver::awaitHaloExchangeRMA(MPI_Win window) {
 /**********************************************************************************************************************/
 /*                       Wait for all halo zone exchanges to finalize using RMA communication.                        */
 /**********************************************************************************************************************/
@@ -331,8 +421,7 @@ void ParallelHeatSolver::awaitHaloExchangeRMA(MPI_Win window)
 
 }
 
-void ParallelHeatSolver::run(std::vector<float, AlignedAllocator<float>>& outResult)
-{
+void ParallelHeatSolver::run(std::vector<float, AlignedAllocator<float>>& outResult) {
   std::array<MPI_Request, 8> requestsP2P{};
 
 /**********************************************************************************************************************/

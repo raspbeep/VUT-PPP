@@ -19,40 +19,39 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 
+# Set default options
+set(ALLOW_OPENMP ON CACHE BOOL "Allow OpenMP for multi-threading")
+
 # Enable unity build
 set(CMAKE_UNITY_BUILD ON)
 
 # Find MPI package
 set(MPI_CXX_SKIP_MPICXX ON) # Do not use mpicxx wrapper
-
 find_package(MPI REQUIRED COMPONENTS CXX)
 
 # Find OpenMP package
-if(NOT MSVC)
-  find_package(OpenMP REQUIRED)
+if((NOT MSVC) AND ${ALLOW_OPENMP})
+  find_package(OpenMP REQUIRED COMPONENTS CXX)
 endif()
 
 # Find HDF5 package
 set(HDF5_PREFER_PARALLEL ON) # Prefer parallel version of HDF5
-
 find_package(HDF5 REQUIRED COMPONENTS C HL)
 
 # Set compiler flags
 set(CMAKE_CXX_STANDARD          17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-set(OPENMP_FOUND TRUE)
-set(OpenMP_CXX_FLAGS “-fopenmp”)
-
-if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-  message(STATUS "using clang")
+if((CMAKE_CXX_COMPILER_ID STREQUAL "GNU") OR
+   (CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang") OR
+   ((CMAKE_CXX_COMPILER_ID STREQUAL "Clang") AND ((CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "GNU"))))
   set(CMAKE_CXX_FLAGS                  "-Wall -Wextra")
-  set(CMAKE_CXX_FLAGS_DEBUG            "-O0 -g")
+  set(CMAKE_CXX_FLAGS_DEBUG            "-O0 -g3")
   set(CMAKE_CXX_FLAGS_RELEASE          "-Ofast -march=native -mtune=native -fassociative-math -flto=auto")
   set(CMAKE_CXX_FLAGS_RELWITHDEBINFO   "${CMAKE_CXX_FLAGS_RELEASE} -g1")
-elseif(CMAKE_CXX_COMPILER_ID MATCHES "Intel")
+elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Intel")
   if(WIN32)
-    set(CMAKE_CXX_FLAGS                "/W5")
+    set(CMAKE_CXX_FLAGS                "/W4")
     set(CMAKE_CXX_FLAGS_DEBUG          "/Od /debug:full")
     set(CMAKE_CXX_FLAGS_RELEASE        "/fast /MT /QxHost") # -flto=full is well formed here, see docs!
     set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELEASE} /debug:minimal")
@@ -60,30 +59,41 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES "Intel")
     set(CMAKE_CXX_FLAGS                "-Wall -Xlinker -lstdc++")
     set(CMAKE_CXX_FLAGS_DEBUG          "-O0 -debug full")
     set(CMAKE_CXX_FLAGS_RELEASE        "-ipo -O3 -no-prec-div -fp-model=fast=2 -xHost")
-    set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELEASE} -debug minimal")
+    set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELEASE} -debug minimal -no-ipo")
   endif()
-elseif(CMAKE_CXX_COMPILER_ID MATCHES "IntelLLVM")
-  if(WIN32)
-    set(CMAKE_CXX_FLAGS                "/W5")
+elseif(CMAKE_CXX_COMPILER_ID STREQUAL "IntelLLVM")
+  if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+    set(CMAKE_CXX_FLAGS                "/W4 /EHsc")
     set(CMAKE_CXX_FLAGS_DEBUG          "/Od /debug:full")
-    set(CMAKE_CXX_FLAGS_RELEASE        "-flto=full /fast /MT /QxHost") # -flto=full is well formed here, see docs!
+    set(CMAKE_CXX_FLAGS_RELEASE        "-O3 /QxHost /fp:fast") # -flto=full is well formed here, see docs!
     set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELEASE} /debug:minimal")
-  else()
-    set(CMAKE_CXX_FLAGS                "-Wall -Xlinker -lstdc++")
+  elseif(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "GNU")
+    set(CMAKE_CXX_FLAGS                "-Wall -Wno-unused-command-line-argument -Xlinker -lstdc++")
     set(CMAKE_CXX_FLAGS_DEBUG          "-O0 -debug full")
-    set(CMAKE_CXX_FLAGS_RELEASE        "-flo=full -fast -xHost")
+    set(CMAKE_CXX_FLAGS_RELEASE        "-flto=full -fast -xHost")
     set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELEASE} -debug minimal")
+  else()
+    message(WARNING "Unsupported IntelLLVM compiler frontend variant: ${CMAKE_CXX_COMPILER_FRONTEND_VARIANT}")
   endif()
-elseif(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
+elseif((CMAKE_CXX_COMPILER_ID STREQUAL "MSVC") OR
+       ((CMAKE_CXX_COMPILER_ID STREQUAL "Clang") AND (CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")))
   set(CMAKE_CXX_FLAGS                  "/W4 /Zc:__cplusplus /EHsc")
-  set(CMAKE_CXX_FLAGS_DEBUG            "/Od /DEBUG:FULL")
+  set(CMAKE_CXX_FLAGS_DEBUG            "/Od /Z7")
   set(CMAKE_CXX_FLAGS_RELEASE          "/Ox /fp:fast /GL")
-  set(CMAKE_CXX_FLAGS_RELWITHDEBINFO   "${CMAKE_CXX_FLAGS_RELEASE} /DEBUG:FULL")
+  set(CMAKE_CXX_FLAGS_RELWITHDEBINFO   "${CMAKE_CXX_FLAGS_RELEASE} /Z7")
 
   set(CMAKE_SHARED_LINKER_FLAGS        "/LTCG")
 else()
   message(WARNING "Unsupported compiler: ${CMAKE_CXX_COMPILER_ID}")
 endif()
+
+# Add cxxopts
+add_subdirectory(3rdparty/cxxopts-3.2.0 EXCLUDE_FROM_ALL)
+
+# Add fmtlib
+set(FMT_INSTALL        OFF)
+set(FMT_SYSTEM_HEADERS ON)
+add_subdirectory(3rdparty/fmt-10.2.1 EXCLUDE_FROM_ALL)
 
 # Solver executable
 add_executable(${PROJECT_NAME} ${CMAKE_CURRENT_SOURCE_DIR}/sources/main.cpp
@@ -93,18 +103,21 @@ add_executable(${PROJECT_NAME} ${CMAKE_CURRENT_SOURCE_DIR}/sources/main.cpp
                                ${CMAKE_CURRENT_SOURCE_DIR}/sources/SequentialHeatSolver.cpp
                                ${CMAKE_CURRENT_SOURCE_DIR}/sources/SimulationProperties.cpp
                                ${CMAKE_CURRENT_SOURCE_DIR}/sources/utils.cpp)
-target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/3rdparty)
-target_link_libraries(${PROJECT_NAME} PRIVATE MPI::MPI_CXX HDF5::HDF5)
-if(NOT MSVC)
+target_include_directories(${PROJECT_NAME} SYSTEM PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/stb)
+target_link_libraries(${PROJECT_NAME} PRIVATE MPI::MPI_CXX
+                                              HDF5::HDF5
+                                              cxxopts::cxxopts
+                                              fmt::fmt-header-only)
+if((NOT MSVC) AND ${ALLOW_OPENMP})
   target_link_libraries(${PROJECT_NAME} PRIVATE OpenMP::OpenMP_CXX)
 endif()
 
 # Data generator
 add_executable(data_generator  ${CMAKE_CURRENT_SOURCE_DIR}/sources/data_generator.cpp)
-target_include_directories(data_generator PRIVATE 3rdparty)
-target_link_libraries(data_generator PRIVATE MPI::MPI_CXX HDF5::HDF5 hdf5::hdf5_hl)
-target_link_libraries(data_generator PRIVATE OpenMP::OpenMP_CXX)
-if(NOT MSVC)
+target_link_libraries(data_generator PRIVATE HDF5::HDF5 hdf5::hdf5_hl
+                                             cxxopts::cxxopts
+                                             fmt::fmt-header-only)
+if((NOT MSVC) AND ${ALLOW_OPENMP})
   target_link_libraries(data_generator PRIVATE OpenMP::OpenMP_CXX)
 endif()
 
@@ -155,7 +168,6 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/sources/assignment)
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/scripts ${CMAKE_CURRENT_BINARY_DIR}/assignment/scripts
     COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/doc/proj01.pdf ${CMAKE_CURRENT_BINARY_DIR}/assignment
     COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt ${CMAKE_CURRENT_BINARY_DIR}/assignment
-    COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/README.md ${CMAKE_CURRENT_BINARY_DIR}/assignment
     COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/assignment/sources
     COMMAND ${CMAKE_COMMAND} -E copy ${ASSIGNMENT_SRC_FILES_LIST} ${CMAKE_CURRENT_BINARY_DIR}/assignment/sources
     COMMAND ${CMAKE_COMMAND} -E tar "cf" "${CMAKE_CURRENT_BINARY_DIR}/ppp_proj01.zip" --format=zip

@@ -26,18 +26,24 @@
 
 // Neighbor directions for indexing in neighbor array
 enum ND {
-  LL = 0,
-  L  = 1,
-  UU = 2,
-  U  = 3,
-  RR = 4,
-  R  = 5,
-  DD = 6,
-  D  = 7
+  W  = 0,
+  N  = 1,
+  E  = 2,
+  S  = 3
 };
 
 constexpr int OLD = 0;
 constexpr int NEW = 1;
+
+constexpr int TO_N = 0;
+constexpr int TO_S = 1;
+constexpr int TO_E = 2;
+constexpr int TO_W = 3;
+
+constexpr int FROM_N = 1;
+constexpr int FROM_S = 0;
+constexpr int FROM_E = 3;
+constexpr int FROM_W = 2;
 
 /**
  * @brief The ParallelHeatSolver class implements parallel MPI based heat
@@ -80,12 +86,14 @@ class ParallelHeatSolver : public HeatSolverBase
     virtual void run(std::vector<float, AlignedAllocator<float>>& outResult) override;
 
   protected:
-    std::vector<int> dims;
+    int n_dims;
+    std::array<int, 2> dims;
+    std::array<int, 2> local_tile_with_halo_dims;
     int total_size;
     MPI_Comm cart_comm;
     int cart_rank;
-    std::vector<int> cart_coords;
-    std::vector<int> neighbors;
+    std::array<int, 2> cart_coords;
+    std::array<int, 4> neighbors;
     MPI_Comm center_col;
 
     std::unique_ptr<int[]> counts;
@@ -98,21 +106,30 @@ class ParallelHeatSolver : public HeatSolverBase
     MPI_Datatype global_tile_type_float;
     MPI_Datatype global_tile_type_int;
     
+    // local tile type (with halo borders)
     MPI_Datatype local_tile_type_int;
+    // local tile type (with halo borders)
     MPI_Datatype local_tile_type_float;
     
-    MPI_Datatype local_row_int;
-    MPI_Datatype local_row_float;
+    // hallo exchange types
+    MPI_Datatype halo_row_up_type_int;
+    MPI_Datatype halo_row_up_type_float;
+
+    MPI_Datatype halo_row_down_type_int;
+    MPI_Datatype halo_row_down_type_float;
     
-    MPI_Datatype local_col_int;
-    MPI_Datatype local_col_float;
+    MPI_Datatype halo_col_left_type_int;
+    MPI_Datatype halo_col_left_type_float;
+
+    MPI_Datatype halo_col_right_type_int;
+    MPI_Datatype halo_col_right_type_float;
 
     AlignedAllocator<int> intAllocator;
     AlignedAllocator<float> floatAllocator;
 
     std::vector<float, AlignedAllocator<float>> domain;
 
-    std::vector<float, AlignedAllocator<float>> tile;
+    std::vector<int, AlignedAllocator<float>> tile_map;
     std::vector<float, AlignedAllocator<float>> tile_params;
     std::array<std::vector<float, AlignedAllocator<float>>, 2> tile_temps;
 

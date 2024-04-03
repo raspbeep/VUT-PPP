@@ -23,6 +23,7 @@
 #include <mpi.h>
 
 #include <cxxopts.hpp>
+#include <fmt/format.h>
 
 #include "SimulationProperties.hpp"
 
@@ -31,7 +32,7 @@ SimulationProperties::SimulationProperties()
   mWriteIntensity(1000),
   mAirflowRate(0.001f),
   mExecution(Execution::seq),
-  mDebugFlag(true),
+  mDebugFlag(false),
   mVerificationFlag(false),
   mSequentialFlag(false),
   mBatchMode(false),
@@ -77,7 +78,7 @@ void SimulationProperties::parseCommandLine(int argc, char *argv[])
 
       if(rank == 0)
       {
-        std::cout << options.help() << std::endl;
+        fmt::print("{}\n", options.help());
       }
 
       MPI_Abort(MPI_COMM_WORLD, 0);
@@ -154,45 +155,58 @@ void SimulationProperties::printParameters(const MaterialProperties &materialPro
   {
     if(mBatchModeHeader)
     {
-      std::cout << "mpi_procs" << ";"
-                << "grid_tiles_x" << ";" << "grid_tiles_y" << ";"
-                << "omp_threads" << ";"
-                << "domain_size" << ";"
-                << "n_iterations" << ";"
-                << "disk_write_intensity" << ";"
-                << "airflow" << ";"
-                << "material_file" << ";"
-                << "output_file" << ";"
-                << "simulation_mode" << ";"
-                << "middle_col_avg_temp" << ";"
-                << "total_time" << ";"
-                << "iteration_time" << std::endl;
+      fmt::print("mpi_procs;"
+                 "grid_tiles_x;"
+                 "grid_tiles_y;"
+                 "omp_threads;"
+                 "domain_size;"
+                 "n_iterations;"
+                 "disk_write_intensity;"
+                 "airflow;"
+                 "material_file;"
+                 "output_file;"
+                 "simulation_mode;"
+                 "middle_col_avg_temp;"
+                 "total_time;"
+                 "iteration_time\n");
+
     }
 
-    std::cout << size << ";"
-              << mGridSize[0] << ";" << mGridSize[1] << ";"
-              << getThreadCount() << ";"
-              << materialProps.getEdgeSize() << ";"
-              << getNumIterations() << ";"
-              << getWriteIntensity() << ";"
-              << getAirflowRate() << ";"
-              << getMaterialFileName() << ";";
+    fmt::print("{};{};{};{};{};{};{};{};{};",
+               size,
+               mGridSize[0], mGridSize[1],
+               getThreadCount(),
+               materialProps.getEdgeSize(),
+               getNumIterations(),
+               getWriteIntensity(),
+               getAirflowRate(),
+               getMaterialFileName());
   }
   else
   {
-    std::cout << ".......... Parameters of the simulation ..........."
-              << "\nDomain size             : " << materialProps.getEdgeSize() << "x" << materialProps.getEdgeSize()
-              << "\nNumber of iterations    : " << getNumIterations()
-              << "\nNumber of MPI processes : " << size
-              << "\nNumber of OpenMP threads: " << getThreadCount()
-              << "\nDisk write intensity    : " << getWriteIntensity()
-              << "\nAir flow rate           : " << getAirflowRate()
-              << "\nInput file name         : " << getMaterialFileName()
-              << "\nOutput file name        : " << getOutputFileName()
-              << "\nExecution               : " << static_cast<std::underlying_type_t<Execution>>(mExecution)
-              << "\nDecomposition type      : " << ((mDecomposition == Decomposition::d1) ? "1D" : "2D")
-                              << " (" << mGridSize[0] << ", " << mGridSize[1] << ")"
-              << "\n...................................................\n" << std::endl;
+    fmt::print(".......... Parameters of the simulation ...........\n"
+               "Domain size:              {}x{}\n"
+               "Number of iterations:     {}\n"
+               "Number of MPI processes:  {}\n"
+               "Number of OpenMP threads: {}\n"
+               "Disk write intensity:     {}\n"
+               "Air flow rate:            {}\n"
+               "Input file name:          {}\n"
+               "Output file name:         {}\n"
+               "Execution:                {}\n"
+               "Decomposition type:       {} ({}, {})\n"
+               "...................................................\n",
+               materialProps.getEdgeSize(), materialProps.getEdgeSize(),
+               getNumIterations(),
+               size,
+               getThreadCount(),
+               getWriteIntensity(),
+               getAirflowRate(),
+               getMaterialFileName(),
+               getOutputFileName(),
+               static_cast<std::underlying_type_t<Execution>>(mExecution),
+               ((mDecomposition == Decomposition::d1) ? "1D" : "2D"),
+               mGridSize[0], mGridSize[1]);
   }
 }
 

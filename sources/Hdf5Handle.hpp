@@ -38,7 +38,7 @@ class Hdf5Handle
 
   public:
     /// @brief Default constructor
-    constexpr Hdf5Handle();
+    constexpr Hdf5Handle() = default;
 
     /**
      * @brief Constructor
@@ -93,13 +93,8 @@ class Hdf5Handle
     [[nodiscard]] constexpr operator hid_t() const;
   protected:
   private:
-    hid_t mHandle;
+    hid_t mHandle{H5I_INVALID_HID};
 };
-
-template<auto closeFunction>
-constexpr Hdf5Handle<closeFunction>::Hdf5Handle()
-: mHandle(H5I_INVALID_HID)
-{}
 
 template<auto closeFunction>
 constexpr Hdf5Handle<closeFunction>::Hdf5Handle(hid_t&& handle)

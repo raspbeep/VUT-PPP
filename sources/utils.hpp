@@ -21,8 +21,8 @@
  */
 struct ErrorInfo
 {
-  float       maxError;    ///< Maximum error value.
-  std::size_t maxErrorIdx; ///< Index of the maximum error value.
+  float       maxError{};    ///< Maximum error value.
+  std::size_t maxErrorIdx{}; ///< Index of the maximum error value.
 };
 
 /**

@@ -7,8 +7,8 @@ ml CMake/3.22.1-GCCcore-11.2.0 intel/2021b HDF5/1.12.1-intel-2021b-parallel Scor
 
 
 # build on ubuntu
-# cmake -DCMAKE_CXX_COMPILER=g++ -DCMAKE_BUILD_TYPE=Debug -DLOGIN=xkrato61 -Bbuild -S. && cmake --build build --config Debug
-# mpiexec -np 4 ./build/ppp_proj01 -m 1 -d -n 100 -i build/ppp_input_data.h5 -o output.h5
+# rm -rf build && cmake -DCMAKE_CXX_COMPILER=g++ -DCMAKE_BUILD_TYPE=Debug -DLOGIN=xkrato61 -Bbuild -S. && cmake --build build --config Debug
+# ./build/data_generator && mpiexec -np 4 ./build/ppp_proj01 -m 1 -d -n 100 -i ppp_input_data.h5 -o output.h5
 
 # disable asking for supersuer
 # echo 0| sudo tee /proc/sys/kernel/yama/ptrace_scope

@@ -15,6 +15,7 @@
 #include <thread>
 #include <vector>
 
+#include <fmt/format.h>
 #include <mpi.h>
 
 #include "AlignedAllocator.hpp"
@@ -30,6 +31,7 @@ void waitForDebugStart()
   using namespace std::chrono_literals;
 
   bool debugStarted{false};
+
   while (!debugStarted)
   {
     std::this_thread::sleep_for(50ms);
@@ -45,13 +47,12 @@ int main(int argc, char *argv[])
 
   if(providedParallelism < MPI_THREAD_FUNNELED)
   {
-    std::cerr << "MPI init error, atleast MPI_THREAD_FUNNELED not provided!" << std::endl;
+    fmt::print(stderr, "MPI init error, atleast MPI_THREAD_FUNNELED not provided!\n");
     MPI_Abort(MPI_COMM_WORLD, -1);
   }
 #else
   MPI_Init(&argc, &argv);
 #endif /* _OPENMP */
-  printf("here\n");
 
   int rank{};
   int size{};
@@ -84,7 +85,7 @@ int main(int argc, char *argv[])
     {
       if(!simulationProps.isBatchMode())
       {
-        std::cout << "============ Running sequential solver =============" << std::endl;
+        fmt::print("============ Running sequential solver =============\n");
       }
 
       sequentialResult.resize(materialProps.getGridPointCount());
@@ -98,7 +99,7 @@ int main(int argc, char *argv[])
       {
         if(!simulationProps.isBatchMode())
         {
-          std::cout << "============= Running parallel solver ==============" << std::endl;
+          fmt::print("============= Running parallel solver ==============");
         }
 
         parallelResult.resize(materialProps.getGridPointCount());
@@ -124,13 +125,13 @@ int main(int argc, char *argv[])
         }
         else
         {
-          std::cout << "=============== Sequential results =================" << std::endl;
+          fmt::print("=============== Sequential results =================\n");
           printArray2d(sequentialResult.data(), materialProps.getEdgeSize());
-          std::cout << std::endl;
+          fmt::print("\n");
 
-          std::cout << "================ Parallel results ==================" << std::endl;
+          fmt::print("================ Parallel results ==================\n");
           printArray2d(parallelResult.data(), materialProps.getEdgeSize());
-          std::cout << std::endl;
+          fmt::print("\n");
         }
       }
 
@@ -142,19 +143,17 @@ int main(int argc, char *argv[])
                                            absError.data(),
                                            0.001f);
 
-      if(ok)
+      if(!ok)
       {
-        std::cout << "Maximum error of " << std::scientific
-                  << errorInfo.maxError << std::defaultfloat
-                  << " is at [" << (errorInfo.maxErrorIdx / materialProps.getEdgeSize()) << ", "
-                  << (errorInfo.maxErrorIdx % materialProps.getEdgeSize()) << "]\n"
-                  << "Verification FAILED" << std::endl;
+        fmt::print("Maximum error of {} is at [{}, {}]\n", errorInfo.maxError,
+                                                           errorInfo.maxErrorIdx / materialProps.getEdgeSize(),
+                                                           errorInfo.maxErrorIdx % materialProps.getEdgeSize());
+        fmt::print("Verification FAILED\n");
       }
       else
       {
-        std::cout << "Max deviation is: " << std::scientific
-                  << errorInfo.maxError << std::defaultfloat << std::endl
-                  << "Verification OK" << std::endl;
+        fmt::print("Max deviation is: {}\n", errorInfo.maxError);
+        fmt::print("Verification OK\n");
       }
 
       if(!simulationProps.getDebugImageFileName().empty())
@@ -168,7 +167,8 @@ int main(int argc, char *argv[])
   }
   catch (const std::exception& e)
   {
-    std::cerr << "Rank #" << rank << " trew an exception: " << e.what() << "\nAborting application..." << std::endl;
+    fmt::print(stderr, "Rank #{} trew an exception: {}\n", rank, e.what());
+    fmt::print(stderr, "Aborting application...\n");
     MPI_Abort(MPI_COMM_WORLD, 1);
   }
 

@@ -76,7 +76,54 @@ clean: CMakeFiles/ppp_proj01.dir/clean
 clean: CMakeFiles/data_generator.dir/clean
 clean: CMakeFiles/test.dir/clean
 clean: CMakeFiles/pack.dir/clean
+clean: 3rdparty/cxxopts-3.2.0/clean
+clean: 3rdparty/fmt-10.2.1/clean
 .PHONY : clean
+
+#=============================================================================
+# Directory level rules for directory 3rdparty/cxxopts-3.2.0
+
+# Recursive "all" directory target.
+3rdparty/cxxopts-3.2.0/all: 3rdparty/cxxopts-3.2.0/include/all
+.PHONY : 3rdparty/cxxopts-3.2.0/all
+
+# Recursive "preinstall" directory target.
+3rdparty/cxxopts-3.2.0/preinstall: 3rdparty/cxxopts-3.2.0/include/preinstall
+.PHONY : 3rdparty/cxxopts-3.2.0/preinstall
+
+# Recursive "clean" directory target.
+3rdparty/cxxopts-3.2.0/clean: 3rdparty/cxxopts-3.2.0/include/clean
+.PHONY : 3rdparty/cxxopts-3.2.0/clean
+
+#=============================================================================
+# Directory level rules for directory 3rdparty/cxxopts-3.2.0/include
+
+# Recursive "all" directory target.
+3rdparty/cxxopts-3.2.0/include/all:
+.PHONY : 3rdparty/cxxopts-3.2.0/include/all
+
+# Recursive "preinstall" directory target.
+3rdparty/cxxopts-3.2.0/include/preinstall:
+.PHONY : 3rdparty/cxxopts-3.2.0/include/preinstall
+
+# Recursive "clean" directory target.
+3rdparty/cxxopts-3.2.0/include/clean:
+.PHONY : 3rdparty/cxxopts-3.2.0/include/clean
+
+#=============================================================================
+# Directory level rules for directory 3rdparty/fmt-10.2.1
+
+# Recursive "all" directory target.
+3rdparty/fmt-10.2.1/all: 3rdparty/fmt-10.2.1/CMakeFiles/fmt.dir/all
+.PHONY : 3rdparty/fmt-10.2.1/all
+
+# Recursive "preinstall" directory target.
+3rdparty/fmt-10.2.1/preinstall:
+.PHONY : 3rdparty/fmt-10.2.1/preinstall
+
+# Recursive "clean" directory target.
+3rdparty/fmt-10.2.1/clean: 3rdparty/fmt-10.2.1/CMakeFiles/fmt.dir/clean
+.PHONY : 3rdparty/fmt-10.2.1/clean
 
 #=============================================================================
 # Target rules for target CMakeFiles/ppp_proj01.dir
@@ -85,7 +132,7 @@ clean: CMakeFiles/pack.dir/clean
 CMakeFiles/ppp_proj01.dir/all:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/ppp_proj01.dir/build.make CMakeFiles/ppp_proj01.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/ppp_proj01.dir/build.make CMakeFiles/ppp_proj01.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/home/pajdox/Downloads/ass/build/CMakeFiles --progress-num=3,4 "Built target ppp_proj01"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/home/pajdox/Downloads/ass/build/CMakeFiles --progress-num=5,6 "Built target ppp_proj01"
 .PHONY : CMakeFiles/ppp_proj01.dir/all
 
 # Build rule for subdir invocation for target.
@@ -182,6 +229,32 @@ pack: CMakeFiles/pack.dir/rule
 CMakeFiles/pack.dir/clean:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/pack.dir/build.make CMakeFiles/pack.dir/clean
 .PHONY : CMakeFiles/pack.dir/clean
+
+#=============================================================================
+# Target rules for target 3rdparty/fmt-10.2.1/CMakeFiles/fmt.dir
+
+# All Build rule for target.
+3rdparty/fmt-10.2.1/CMakeFiles/fmt.dir/all:
+	$(MAKE) $(MAKESILENT) -f 3rdparty/fmt-10.2.1/CMakeFiles/fmt.dir/build.make 3rdparty/fmt-10.2.1/CMakeFiles/fmt.dir/depend
+	$(MAKE) $(MAKESILENT) -f 3rdparty/fmt-10.2.1/CMakeFiles/fmt.dir/build.make 3rdparty/fmt-10.2.1/CMakeFiles/fmt.dir/build
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/home/pajdox/Downloads/ass/build/CMakeFiles --progress-num=3,4 "Built target fmt"
+.PHONY : 3rdparty/fmt-10.2.1/CMakeFiles/fmt.dir/all
+
+# Build rule for subdir invocation for target.
+3rdparty/fmt-10.2.1/CMakeFiles/fmt.dir/rule: cmake_check_build_system
+	$(CMAKE_COMMAND) -E cmake_progress_start /home/pajdox/Downloads/ass/build/CMakeFiles 2
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 3rdparty/fmt-10.2.1/CMakeFiles/fmt.dir/all
+	$(CMAKE_COMMAND) -E cmake_progress_start /home/pajdox/Downloads/ass/build/CMakeFiles 0
+.PHONY : 3rdparty/fmt-10.2.1/CMakeFiles/fmt.dir/rule
+
+# Convenience name for target.
+fmt: 3rdparty/fmt-10.2.1/CMakeFiles/fmt.dir/rule
+.PHONY : fmt
+
+# clean rule for target.
+3rdparty/fmt-10.2.1/CMakeFiles/fmt.dir/clean:
+	$(MAKE) $(MAKESILENT) -f 3rdparty/fmt-10.2.1/CMakeFiles/fmt.dir/build.make 3rdparty/fmt-10.2.1/CMakeFiles/fmt.dir/clean
+.PHONY : 3rdparty/fmt-10.2.1/CMakeFiles/fmt.dir/clean
 
 #=============================================================================
 # Special targets to cleanup operation of make.

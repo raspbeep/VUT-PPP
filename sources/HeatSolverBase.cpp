@@ -14,6 +14,8 @@
 #include <iomanip>
 #include <limits>
 
+#include <fmt/format.h>
+
 #include "Hdf5Handle.hpp"
 #include "HeatSolverBase.hpp"
 
@@ -46,10 +48,7 @@ void HeatSolverBase::printProgressReport(std::size_t iteration, float middleColA
   double progress = static_cast<double>((iteration + 1) * 100)
                       / static_cast<double>(mSimulationProps.getNumIterations());
 
-  std::cout << std::fixed
-            << "Progress " << std::setw(3) << unsigned(progress)
-            << "% (Average Temperature " << std::fixed << middleColAvgTemp << " degrees)" << std::endl
-            << std::defaultfloat;
+  fmt::print("Progress {:3}% (Average Temperature {:.2f} degrees)\n", progress, middleColAvgTemp);
 }
 
 void HeatSolverBase::printFinalReport(double totalTime, float middleColAvgTemp) const
@@ -58,17 +57,19 @@ void HeatSolverBase::printFinalReport(double totalTime, float middleColAvgTemp) 
 
   if (!mSimulationProps.isBatchMode())
   {
-    std::cout << "====================================================\n"
-              << "Execution time of \"" << codeType << "\" version: " << totalTime << "s\n"
-              << "====================================================\n" << std::endl;
+    fmt::print("====================================================\n"
+               "Execution time of \"{}\" version: {}s\n"
+               "====================================================\n\n",
+               codeType, totalTime);
   }
   else
   {
-    std::cout << mSimulationProps.getOutputFileName(codeType) << ";"
-              << codeType << ";"
-              << middleColAvgTemp << ";"
-              << totalTime << ";"
-              << totalTime / static_cast<double>(mSimulationProps.getNumIterations()) << std::endl;
+    fmt::print("{};{};{};{};{}\n",
+               mSimulationProps.getOutputFileName(codeType),
+               codeType,
+               middleColAvgTemp,
+               totalTime,
+               totalTime / static_cast<double>(mSimulationProps.getNumIterations()));
   }
 }
 

@@ -168,6 +168,19 @@ pack/fast:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/pack.dir/build.make CMakeFiles/pack.dir/build
 .PHONY : pack/fast
 
+#=============================================================================
+# Target rules for targets named fmt
+
+# Build rule for target.
+fmt: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 fmt
+.PHONY : fmt
+
+# fast build rule for target.
+fmt/fast:
+	$(MAKE) $(MAKESILENT) -f 3rdparty/fmt-10.2.1/CMakeFiles/fmt.dir/build.make 3rdparty/fmt-10.2.1/CMakeFiles/fmt.dir/build
+.PHONY : fmt/fast
+
 Unity/unity_0_cxx.o: Unity/unity_0_cxx.cxx.o
 .PHONY : Unity/unity_0_cxx.o
 
@@ -206,6 +219,7 @@ help:
 	@echo "... pack"
 	@echo "... test"
 	@echo "... data_generator"
+	@echo "... fmt"
 	@echo "... ppp_proj01"
 	@echo "... Unity/unity_0_cxx.o"
 	@echo "... Unity/unity_0_cxx.i"

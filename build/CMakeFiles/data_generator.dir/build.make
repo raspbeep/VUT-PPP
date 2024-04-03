@@ -93,8 +93,6 @@ data_generator_EXTERNAL_OBJECTS =
 data_generator: CMakeFiles/data_generator.dir/Unity/unity_0_cxx.cxx.o
 data_generator: CMakeFiles/data_generator.dir/build.make
 data_generator: /usr/lib/x86_64-linux-gnu/hdf5/serial/libhdf5_hl.so
-data_generator: /usr/lib/x86_64-linux-gnu/openmpi/lib/libmpi_cxx.so
-data_generator: /usr/lib/x86_64-linux-gnu/openmpi/lib/libmpi.so
 data_generator: /usr/lib/x86_64-linux-gnu/hdf5/serial/libhdf5.so
 data_generator: /usr/lib/x86_64-linux-gnu/libcrypto.so
 data_generator: /usr/lib/x86_64-linux-gnu/libcurl.so

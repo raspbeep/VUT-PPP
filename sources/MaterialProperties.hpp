@@ -119,14 +119,14 @@ class MaterialProperties
      * @brief Domain Map - defines type of the material at every gridpoint
      *        0 - air, 1 - aluminium, 2 - copper.
      */
-    std::vector<int, AlignedAllocator<int>>     mDomainMap;
-    std::vector<float, AlignedAllocator<float>> mDomainParams;    ///< Thermal properties of the medium.
-    std::vector<float, AlignedAllocator<float>> mInitTemp;        ///< Initial temperature distribution.
+    std::vector<int, AlignedAllocator<int>>     mDomainMap{};
+    std::vector<float, AlignedAllocator<float>> mDomainParams{};   ///< Thermal properties of the medium.
+    std::vector<float, AlignedAllocator<float>> mInitTemp{};       ///< Initial temperature distribution.
 
-    float                                       mCoolerTemp;      ///< Temperature of the air.
-    float                                       mHeaterTemp;      ///< Temperature of the heater.
-    std::size_t                                 mEdgeSize;        ///< Size of the domain.
-    std::size_t                                 mGridPointCount;  ///< Total number of gridpoint in the domain.
+    float                                       mCoolerTemp{};     ///< Temperature of the air.
+    float                                       mHeaterTemp{};     ///< Temperature of the heater.
+    std::size_t                                 mEdgeSize{};       ///< Size of the domain.
+    std::size_t                                 mGridPointCount{}; ///< Total number of gridpoint in the domain.
 };
 
 #endif /* MATERIAL_PROPERTIES_HPP */
