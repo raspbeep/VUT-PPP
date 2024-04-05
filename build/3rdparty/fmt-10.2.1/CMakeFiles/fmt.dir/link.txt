@@ -1,2 +1,0 @@
-/usr/bin/ar qc libfmtd.a CMakeFiles/fmt.dir/Unity/unity_0_cxx.cxx.o
-/usr/bin/ranlib libfmtd.a

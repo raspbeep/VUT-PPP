@@ -94,10 +94,15 @@ class ParallelHeatSolver : public HeatSolverBase
     int cart_rank;
     std::array<int, 2> cart_coords;
     std::array<int, 4> neighbors;
-    MPI_Comm center_col;
+
+    MPI_Comm center_col_comm;
 
     std::unique_ptr<int[]> counts;
     std::unique_ptr<int[]> displacements;
+    float heater_temp;
+    float cooler_temp;
+    int interation_count;
+    int is_p2p_mode;
 
     int global_edge_size;
     int tile_size_x, tile_size_y;
@@ -112,17 +117,29 @@ class ParallelHeatSolver : public HeatSolverBase
     MPI_Datatype local_tile_type_float;
     
     // hallo exchange types
-    MPI_Datatype halo_row_up_type_int;
-    MPI_Datatype halo_row_up_type_float;
+    MPI_Datatype halo_send_row_up_type_int;
+    MPI_Datatype halo_send_row_up_type_float;
 
-    MPI_Datatype halo_row_down_type_int;
-    MPI_Datatype halo_row_down_type_float;
+    MPI_Datatype halo_send_row_down_type_int;
+    MPI_Datatype halo_send_row_down_type_float;
     
-    MPI_Datatype halo_col_left_type_int;
-    MPI_Datatype halo_col_left_type_float;
+    MPI_Datatype halo_send_col_left_type_int;
+    MPI_Datatype halo_send_col_left_type_float;
 
-    MPI_Datatype halo_col_right_type_int;
-    MPI_Datatype halo_col_right_type_float;
+    MPI_Datatype halo_send_col_right_type_int;
+    MPI_Datatype halo_send_col_right_type_float;
+  
+    MPI_Datatype halo_receive_row_up_type_int;
+    MPI_Datatype halo_receive_row_up_type_float;
+
+    MPI_Datatype halo_receive_row_down_type_int;
+    MPI_Datatype halo_receive_row_down_type_float;
+    
+    MPI_Datatype halo_receive_col_left_type_int;
+    MPI_Datatype halo_receive_col_left_type_float;
+
+    MPI_Datatype halo_receive_col_right_type_int;
+    MPI_Datatype halo_receive_col_right_type_float;
 
     AlignedAllocator<int> intAllocator;
     AlignedAllocator<float> floatAllocator;
@@ -134,6 +151,14 @@ class ParallelHeatSolver : public HeatSolverBase
     std::array<std::vector<float, AlignedAllocator<float>>, 2> tile_temps;
 
   private:
+    // TODO: DELETE ME
+    void print_global_tile_float(const float *arr);
+    void print_global_tile_int(const int *arr);
+    void print_local_tile_no_halo_float(const float *arr);
+    void print_local_tile_no_halo_int(const int *arr);
+    void print_local_tile_float(const float *arr);
+    void print_local_tile_int(const int *arr);
+
     /**
      * @brief Get type of the code.
      * @return Returns type of the code.

@@ -1,5 +1,5 @@
 make: build
-	cp ./build/comm ./comm
+	./build/data_generator && mpiexec -np 2 ./build/ppp_proj01 -m 1 -d -n 1 -i ppp_input_data.h5 -o output.h5
 
 sync:
 	rsync --exclude 'build' -rvu ~/Downloads/ass/ xkrato61@karolina.it4i.cz:~/ppp/projekt
@@ -7,7 +7,7 @@ sync:
 	# rsync --exclude 'build' -rvu ~/ppp/assignment/ xkrato61@barbora.it4i.cz:~/ppp/projekt
 
 gen:
-	cmake -Bbuild -S.
+	rm -rf build && cmake -DCMAKE_CXX_COMPILER=g++ -DCMAKE_BUILD_TYPE=Debug -DLOGIN=xkrato61 -Bbuild -S.
 
-build:
-	cmake --build build --config Release
+build: gen
+	cmake --build build --config Debug
