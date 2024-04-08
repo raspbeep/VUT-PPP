@@ -141,6 +141,8 @@ class ParallelHeatSolver : public HeatSolverBase
     MPI_Datatype halo_receive_col_right_type_int;
     MPI_Datatype halo_receive_col_right_type_float;
 
+    std::array<MPI_Win, 2> wins;
+
     AlignedAllocator<int> intAllocator;
     AlignedAllocator<float> floatAllocator;
 
