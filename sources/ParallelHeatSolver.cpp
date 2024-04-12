@@ -65,6 +65,7 @@ std::string_view ParallelHeatSolver::getCodeType() const {
   return codeType;
 }
 
+#if DBG
 void ParallelHeatSolver::print_global_tile_float(const float *arr) {
   for (int r = 0; r < global_edge_size; r++) {
     for (int c = 0; c < global_edge_size; c++) {
@@ -126,6 +127,7 @@ void ParallelHeatSolver::print_local_tile_int(const int *arr) {
     printf("\n");
   }
 }
+#endif
 
 void ParallelHeatSolver::initGridTopology() {
   /**********************************************************************************************************************/
@@ -310,7 +312,6 @@ void ParallelHeatSolver::initDataDistribution() {
   std::fill_n(counts.get(), total_size, 1);
 
   int nX = global_edge_size / tile_size_x;
-  int nY = global_edge_size / tile_size_y;
 
 for (int i = 0; i < total_size; i++ ) {
     int row = i / nX;
@@ -389,9 +390,9 @@ void ParallelHeatSolver::initHaloExchange() {
     std::array<int, 2> halo_send_start_right = {haloZoneSize, tile_size_x};
 
     std::array<int, 2> halo_receive_start_up = {0, haloZoneSize};
-    std::array<int, 2> halo_receive_start_down = {tile_size_y + haloZoneSize, haloZoneSize};
+    std::array<int, 2> halo_receive_start_down = {tile_size_y + (int)haloZoneSize, haloZoneSize};
     std::array<int, 2> halo_receive_start_left = {haloZoneSize, 0};
-    std::array<int, 2> halo_receive_start_right = {haloZoneSize, tile_size_x + haloZoneSize};
+    std::array<int, 2> halo_receive_start_right = {haloZoneSize, tile_size_x + (int)haloZoneSize};
 
     std::array<int, 2> halo_dims_row = {haloZoneSize, tile_size_x};
     std::array<int, 2> halo_dims_col = {tile_size_y, haloZoneSize};
@@ -541,7 +542,7 @@ void ParallelHeatSolver::computeHaloZones(const float *oldTemp, float *newTemp) 
     is_right = cart_coords[1] == dims[1] - 1;
   }
   
-  if (tile_size_x < haloZoneSize * 2 || tile_size_y < haloZoneSize *2) {  
+  if (tile_size_x < (int)(haloZoneSize * 2) || tile_size_y < (int)(haloZoneSize * 2)) {  
     if (is_left || is_right) return;
     updateTile(oldTemp, newTemp, tile_params.data(), tile_map.data(),
       haloZoneSize, haloZoneSize * 2, tile_size_x, tile_size_y - (haloZoneSize * 2), tile_size_with_halo_x);
@@ -696,6 +697,7 @@ void ParallelHeatSolver::run(std::vector<float, AlignedAllocator<float>> &outRes
   awaitHaloExchangeP2P(requestsP2P);
   MPI_Barrier(MPI_COMM_WORLD);
 
+
   // if (mWorldRank == 0) {
   //   print_global_tile_float(mMaterialProps.getInitialTemperature().data());
   // }
@@ -770,7 +772,7 @@ void ParallelHeatSolver::run(std::vector<float, AlignedAllocator<float>> &outRes
     /**********************************************************************************************************************/
     /*                           Compute the rest of the tile. Use updateTile method.                                     */
     /**********************************************************************************************************************/
-    if (tile_size_x > haloZoneSize * 2 && tile_size_y > haloZoneSize * 2)
+    if (tile_size_x > (int)(haloZoneSize * 2) && tile_size_y > (int)(haloZoneSize * 2))
       updateTile(tile_temps[oldIdx].data(), tile_temps[newIdx].data(), tile_params.data(), tile_map.data(),
         haloZoneSize * 2, haloZoneSize * 2, tile_size_x - (haloZoneSize * 2), tile_size_y - (haloZoneSize * 2), tile_size_with_halo_x);
     
@@ -888,7 +890,7 @@ float ParallelHeatSolver::computeMiddleColumnAverageTemperatureParallel(const fl
   float sum = 0.0f, total_sum{0.0f};
   
   #pragma omp simd reduction(+:sum) aligned(localData: 64) simdlen(16)
-  for (int i = haloZoneSize; i < tile_size_y + haloZoneSize; i++) {
+  for (int i = haloZoneSize; i < (int)(tile_size_y + haloZoneSize); i++) {
     sum += localData[i * tile_size_with_halo_x + col_index];
   }
 
@@ -912,9 +914,6 @@ float ParallelHeatSolver::computeMiddleColumnAverageTemperatureSequential(const 
 }
 
 void ParallelHeatSolver::openOutputFileSequential() {
-  // Create the output file for sequential access.
-  // hid_t plist_id = H5Pcreate(H5P_FILE_ACCESS);
-  // H5Pset_fapl_mpio(plist_id, MPI_COMM_WORLD, MPI_INFO_NULL);
   mFileHandle = H5Fcreate(mSimulationProps.getOutputFileName(codeType).c_str(),
                           H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
   if (!mFileHandle.valid()) {
@@ -933,12 +932,13 @@ void ParallelHeatSolver::storeDataIntoFileSequential(hid_t fileHandle,
 
 void ParallelHeatSolver::openOutputFileParallel() {
 #ifdef H5_HAVE_PARALLEL
-  Hdf5PropertyListHandle faplHandle{};
+  Hdf5PropertyListHandle faplHandle{H5Pcreate(H5P_FILE_ACCESS)};
 
   /**********************************************************************************************************************/
   /*                          Open output HDF5 file for parallel access with alignment.                                 */
   /*      Set up faplHandle to use MPI-IO and alignment. The handle will automatically release the resource.            */
   /**********************************************************************************************************************/
+  herr_t status = H5Pset_fapl_mpio(faplHandle, MPI_COMM_WORLD, MPI_INFO_NULL);
 
   mFileHandle = H5Fcreate(mSimulationProps.getOutputFileName(codeType).c_str(),
                           H5F_ACC_TRUNC,
@@ -973,54 +973,59 @@ void ParallelHeatSolver::storeDataIntoFileParallel(hid_t fileHandle,
     /*                                Compute the tile offsets and sizes.                                                 */
     /*               Note that the X and Y coordinates are swapped (but data not altered).                                */
     /**********************************************************************************************************************/
-    
+    std::array<hsize_t, 2> tileOffset;
     // compute the tile offsets and sizes.
-    std::array<hsize_t, 2> tileOffset = {displacements[mWorldRank] / tile_size_x, displacements[mWorldRank] % tile_size_x};
+    if (mSimulationProps.getDecomposition() == SimulationProperties::Decomposition::d1) {
+      tileOffset[0] = 0;
+      tileOffset[1] = cart_coords[0] * tile_size_x;
+    } else {
+      tileOffset[0] = cart_coords[0] * tile_size_y;
+      tileOffset[1] = cart_coords[1] * tile_size_x;
+    }
+
+#if DBG    
+    printf("[%d] cart coords: %d %d\n", mWorldRank, cart_coords[0], cart_coords[1]);
+#endif
+
+    std::array<hsize_t, 2> global_grid_size = {mMaterialProps.getEdgeSize(), mMaterialProps.getEdgeSize()};
     std::array<hsize_t, 2> local_tile_size_with_halo = {tile_size_with_halo_y, tile_size_with_halo_x};
     std::array<hsize_t, 2> local_tile_size = {tile_size_y, tile_size_x};
 
     // Create new dataspace and dataset using it.
     static constexpr std::string_view dataSetName{"Temperature"};
-
     Hdf5PropertyListHandle datasetPropListHandle(H5Pcreate(H5P_DATASET_CREATE));
-    H5Pset_chunk(datasetPropListHandle, 2, local_tile_size.data());
-    H5Pset_dxpl_mpio(datasetPropListHandle, H5FD_MPIO_COLLECTIVE);
 
     /**********************************************************************************************************************/
     /*                            Create dataset property list to set up chunking.                                        */
     /*                Set up chunking for collective write operation in datasetPropListHandle variable.                   */
     /**********************************************************************************************************************/
+    H5Pset_chunk(datasetPropListHandle, 2, local_tile_size.data());
 
     Hdf5DataspaceHandle dataSpaceHandle(H5Screate_simple(2, gridSize.data(), nullptr));
     Hdf5DatasetHandle dataSetHandle(H5Dcreate(groupHandle, dataSetName.data(),
                                               H5T_NATIVE_FLOAT, dataSpaceHandle,
                                               H5P_DEFAULT, datasetPropListHandle,
                                               H5P_DEFAULT));
-
-    Hdf5DataspaceHandle memSpaceHandle(H5Screate_simple(2, local_tile_size_with_halo.data(), nullptr));
-    
     
     /**********************************************************************************************************************/
     /*                Create memory dataspace representing tile in the memory (set up memSpaceHandle).                    */
     /**********************************************************************************************************************/
-    H5Sselect_hyperslab(dataSpaceHandle, H5S_SELECT_SET, tileOffset.data(), nullptr, local_tile_size.data(), nullptr);
-    H5Sselect_hyperslab(memSpaceHandle, H5S_SELECT_SET, nullptr, nullptr, local_tile_size.data(), nullptr);
-
-    H5Sselect_hyperslab(dataSpaceHandle, H5S_SELECT_SET, tileOffset.data(), nullptr, local_tile_size.data(), nullptr);
+    Hdf5DataspaceHandle memSpaceHandle(H5Screate_simple(2, local_tile_size_with_halo.data(), nullptr));
 
     /**********************************************************************************************************************/
     /*              Select inner part of the tile in memory and matching part of the dataset in the file                  */
     /*                           (given by position of the tile in global domain).                                        */
     /**********************************************************************************************************************/
-    std::array<hsize_t, 2> start = {haloZoneSize, haloZoneSize};
-    H5Sselect_hyperslab(memSpaceHandle, H5S_SELECT_SET, start.data(), nullptr, local_tile_size.data(), nullptr);
+    std::array<hsize_t, 2> start_tile_halo = {haloZoneSize, haloZoneSize};
+    H5Sselect_hyperslab(memSpaceHandle, H5S_SELECT_SET, start_tile_halo.data(), nullptr, local_tile_size.data(), nullptr);
+    H5Sselect_hyperslab(dataSpaceHandle, H5S_SELECT_SET, tileOffset.data(), nullptr, local_tile_size.data(), nullptr);
 
-    Hdf5PropertyListHandle propListHandle{};
+    
     /**********************************************************************************************************************/
     /*              Perform collective write operation, writting tiles from all processes at once.                        */
     /*                                   Set up the propListHandle variable.                                              */
     /**********************************************************************************************************************/
-    propListHandle = H5Pcreate(H5P_DATASET_XFER);
+    Hdf5PropertyListHandle propListHandle(H5Pcreate(H5P_DATASET_XFER));
     H5Pset_dxpl_mpio(propListHandle, H5FD_MPIO_COLLECTIVE);
 
     H5Dwrite(dataSetHandle, H5T_NATIVE_FLOAT, memSpaceHandle, dataSpaceHandle, propListHandle, localData);
@@ -1040,94 +1045,3 @@ void ParallelHeatSolver::storeDataIntoFileParallel(hid_t fileHandle,
   throw std::runtime_error("Parallel HDF5 support is not available!");
 #endif /* H5_HAVE_PARALLEL */
 }
-
-// void ParallelHeatSolver::storeDataIntoFileParallel(hid_t                         fileHandle,
-//                                                    [[maybe_unused]] std::size_t  iteration,
-//                                                    [[maybe_unused]] const float* localData)
-// {
-//   if (fileHandle == H5I_INVALID_HID)
-//   {
-//     return;
-//   }
-
-// #ifdef H5_HAVE_PARALLEL
-//   std::array gridSize{static_cast<hsize_t>(mMaterialProps.getEdgeSize()),
-//                       static_cast<hsize_t>(mMaterialProps.getEdgeSize())};
-
-//   // Create new HDF5 group in the output file
-//   std::string groupName = "Timestep_" + std::to_string(iteration / mSimulationProps.getWriteIntensity());
-
-//   Hdf5GroupHandle groupHandle(H5Gcreate(fileHandle, groupName.c_str(), H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT));
-
-//   {
-//     /**********************************************************************************************************************/
-//     /*                                Compute the tile offsets and sizes.                                                 */
-//     /*               Note that the X and Y coordinates are swapped (but data not altered).                                */
-//     /**********************************************************************************************************************/
-
-//     // Calculate tile offset and size in X and Y dimensions including halo
-//     int tile_offset_x = displacements[mWorldRank] / tile_size_x;
-//     int tile_offset_y = displacements[mWorldRank] % tile_size_x;
-
-//     // Create new dataspace and dataset using it.
-//     static constexpr std::string_view dataSetName{"Temperature"};
-
-//     Hdf5PropertyListHandle datasetPropListHandle{};
-
-//     /**********************************************************************************************************************/
-//     /*                            Create dataset property list to set up chunking.                                        */
-//     /*                Set up chunking for collective write operation in datasetPropListHandle variable.                   */
-//     /**********************************************************************************************************************/
-//     datasetPropListHandle = H5Pcreate(H5P_DATASET_CREATE);
-//     hsize_t chunk_dims[2] = {tile_size_with_halo_x, tile_size_with_halo_y};
-//     H5Pset_chunk(datasetPropListHandle, 2, chunk_dims);
-
-//     Hdf5DataspaceHandle dataSpaceHandle(H5Screate_simple(2, gridSize.data(), nullptr));
-//     Hdf5DatasetHandle dataSetHandle(H5Dcreate(groupHandle, dataSetName.data(),
-//                                               H5T_NATIVE_FLOAT, dataSpaceHandle,
-//                                               H5P_DEFAULT, datasetPropListHandle,
-//                                               H5P_DEFAULT));
-
-//     Hdf5DataspaceHandle memSpaceHandle{};
-
-//     /**********************************************************************************************************************/
-//     /*                Create memory dataspace representing tile in the memory (set up memSpaceHandle).                    */
-//     /**********************************************************************************************************************/
-//     hsize_t mem_dims[2] = {tile_size_with_halo_x, tile_size_with_halo_y};
-//     memSpaceHandle = H5Screate_simple(2, mem_dims, nullptr);
-
-//     /**********************************************************************************************************************/
-//     /*              Select inner part of the tile in memory and matching part of the dataset in the file                  */
-//     /*                           (given by position of the tile in global domain).                                        */
-//     /**********************************************************************************************************************/
-//     hsize_t start[2] = {tile_offset_x, tile_offset_y};
-//     hsize_t count[2] = {tile_size_with_halo_x, tile_size_with_halo_y};
-//     H5Sselect_hyperslab(dataSpaceHandle, H5S_SELECT_SET, start, nullptr, count, nullptr);
-//     H5Sselect_hyperslab(memSpaceHandle, H5S_SELECT_SET, start, nullptr, count, nullptr);
-
-//     Hdf5PropertyListHandle propListHandle{};
-
-//     /**********************************************************************************************************************/
-//     /*              Perform collective write operation, writting tiles from all processes at once.                        */
-//     /*                                   Set up the propListHandle variable.                                              */
-//     /**********************************************************************************************************************/
-//     propListHandle = H5Pcreate(H5P_DATASET_XFER);
-//     H5Pset_dxpl_mpio(propListHandle, H5FD_MPIO_COLLECTIVE);
-
-//     H5Dwrite(dataSetHandle, H5T_NATIVE_FLOAT, memSpaceHandle, dataSpaceHandle, propListHandle, localData);
-//   }
-
-//   {
-//     // 3. Store attribute with current iteration number in the group.
-//     static constexpr std::string_view attributeName{"Time"};
-//     Hdf5DataspaceHandle dataSpaceHandle(H5Screate(H5S_SCALAR));
-//     Hdf5AttributeHandle attributeHandle(H5Acreate2(groupHandle, attributeName.data(),
-//                                                    H5T_IEEE_F64LE, dataSpaceHandle,
-//                                                    H5P_DEFAULT, H5P_DEFAULT));
-//     const double snapshotTime = static_cast<double>(iteration);
-//     H5Awrite(attributeHandle, H5T_IEEE_F64LE, &snapshotTime);
-//   }
-// #else
-//   throw std::runtime_error("Parallel HDF5 support is not available!");
-// #endif /* H5_HAVE_PARALLEL */
-// }

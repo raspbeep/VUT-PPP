@@ -12,3 +12,6 @@ ml CMake/3.22.1-GCCcore-11.2.0 intel/2021b HDF5/1.12.1-intel-2021b-parallel Scor
 
 # disable asking for supersuer
 # echo 0| sudo tee /proc/sys/kernel/yama/ptrace_scope
+
+# LFS
+# lfs setstripe -S 1M -c 16 /scratch/project/dd-23-135/$USER
