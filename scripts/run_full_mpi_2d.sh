@@ -29,7 +29,7 @@ mkdir -p $OUT_FILE_PATH
 
 # Doplnte vhodne nastavenie Lustre file system #
 ################################################
-
+lfs setstripe -S 512k -c 4 /scratch/project/dd-23-135/$USER
 ################################################
 
 DISK_WRITE_INTENSITY=50

@@ -87,6 +87,7 @@ class ParallelHeatSolver : public HeatSolverBase
 
   protected:
     int n_dims;
+    bool should_compute_average;
     std::array<int, 2> dims;
     std::array<int, 2> local_tile_with_halo_dims;
     int total_size;
@@ -94,8 +95,11 @@ class ParallelHeatSolver : public HeatSolverBase
     int cart_rank;
     std::array<int, 2> cart_coords;
     std::array<int, 4> neighbors;
+    int decomp;
 
     MPI_Comm center_col_comm;
+    // rank's tile position
+    bool is_top, is_bottom, is_left, is_right;
 
     std::unique_ptr<int[]> counts;
     std::unique_ptr<int[]> displacements;
@@ -152,15 +156,12 @@ class ParallelHeatSolver : public HeatSolverBase
     std::vector<float, AlignedAllocator<float>> tile_params;
     std::array<std::vector<float, AlignedAllocator<float>>, 2> tile_temps;
 
-  private:
-    // TODO: DELETE ME
-    void print_global_tile_float(const float *arr);
-    void print_global_tile_int(const int *arr);
-    void print_local_tile_no_halo_float(const float *arr);
-    void print_local_tile_no_halo_int(const int *arr);
-    void print_local_tile_float(const float *arr);
-    void print_local_tile_int(const int *arr);
+    std::array<hsize_t, 2> global_grid_size, local_tile_size, local_tile_size_with_halo;
 
+    // for parallel I/O
+    std::array<hsize_t, 2> tileOffset;
+
+  private:
     /**
      * @brief Get type of the code.
      * @return Returns type of the code.

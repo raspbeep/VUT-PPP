@@ -34,6 +34,7 @@ ParallelHeatSolver::ParallelHeatSolver(const SimulationProperties &simulationPro
   initGridTopology();
   initDataDistribution();
   allocLocalTiles();
+  initHaloExchange();
 
   if (!mSimulationProps.getOutputFileName().empty()) {
     /**********************************************************************************************************************/
@@ -57,77 +58,15 @@ ParallelHeatSolver::~ParallelHeatSolver() {
   /*                                  Call deinit* and dealloc* methods in correct order                                */
   /*                                             (should be in reverse order)                                           */
   /**********************************************************************************************************************/
-  deallocLocalTiles();
+  // not necessary
+  // deallocLocalTiles();
   deinitDataDistribution();
+  deinitHaloExchange();
 }
 
 std::string_view ParallelHeatSolver::getCodeType() const {
   return codeType;
 }
-
-#if DBG
-void ParallelHeatSolver::print_global_tile_float(const float *arr) {
-  for (int r = 0; r < global_edge_size; r++) {
-    for (int c = 0; c < global_edge_size; c++) {
-      printf("%.6f ", arr[(r * global_edge_size) + c]);
-      if (c % tile_size_x == tile_size_x - 1) printf("|\t");
-    }
-    if (r % tile_size_y == tile_size_y - 1) printf("\n");
-    printf("\n");
-  }
-}
-
-void ParallelHeatSolver::print_global_tile_int(const int *arr) {
-  for (int r = 0; r < global_edge_size; r++) {
-    for (int c = 0; c < global_edge_size; c++) {
-      printf("%d ", arr[(r * global_edge_size) + c]);
-      if (c % tile_size_y == tile_size_y - 1) printf("|\t");
-    }
-    if (r % tile_size_x == tile_size_x - 1) printf("\n");
-    printf("\n");
-  }
-}
-
-void ParallelHeatSolver::print_local_tile_no_halo_float(const float *arr) {
-  printf("[%d] printing %dx%d grid\n", mWorldRank, tile_size_with_halo_x, tile_size_with_halo_y);
-  for (int r = haloZoneSize; r < tile_size_with_halo_y - haloZoneSize; r++) {
-    for (int c = haloZoneSize; c < tile_size_with_halo_x - haloZoneSize; c++) {
-      printf("%f ", arr[r * tile_size_with_halo_x + c]);
-    }
-    printf("\n");
-  }
-}
-
-void ParallelHeatSolver::print_local_tile_no_halo_int(const int *arr) {
-  printf("[%d] printing %dx%d grid\n", mWorldRank, tile_size_with_halo_x, tile_size_with_halo_y);
-  for (int r = haloZoneSize; r < tile_size_with_halo_y - haloZoneSize; r++) {
-    for (int c = haloZoneSize; c < tile_size_with_halo_x - haloZoneSize; c++) {
-      printf("%d\t", arr[r * tile_size_with_halo_x + c]);
-    }
-    printf("\n");
-  }
-}
-
-void ParallelHeatSolver::print_local_tile_float(const float *arr) {
-  printf("[%d] printing %dx%d grid\n", mWorldRank, tile_size_with_halo_x, tile_size_with_halo_y);
-  for (int r = 0; r < tile_size_with_halo_y; r++) {
-    for (int c = 0; c < tile_size_with_halo_x; c++) {
-      printf("%f ", arr[r * tile_size_with_halo_x + c]);
-    }
-    printf("\n");
-  }
-}
-
-void ParallelHeatSolver::print_local_tile_int(const int *arr) {
-  printf("[%d] printing %dx%d grid\n", mWorldRank, tile_size_with_halo_x, tile_size_with_halo_y);
-  for (int r = 0; r < tile_size_with_halo_y; r++) {
-    for (int c = 0; c < tile_size_with_halo_x; c++) {
-      printf("%d\t", arr[r*tile_size_with_halo_x + c]);
-    }
-    printf("\n");
-  }
-}
-#endif
 
 void ParallelHeatSolver::initGridTopology() {
   /**********************************************************************************************************************/
@@ -139,48 +78,38 @@ void ParallelHeatSolver::initGridTopology() {
   total_size = nx * ny;
 
   std::array periods = {0, 0};
-  switch (mSimulationProps.getDecomposition()) {
-  case SimulationProperties::Decomposition::d1:
+  decomp = mSimulationProps.getDecomposition() == SimulationProperties::Decomposition::d1 ? 1 : 2;
+  if (decomp == 1) {
     n_dims = 1;
     dims[0] = nx;
     dims[1] = 1;
-    break;
-  case SimulationProperties::Decomposition::d2:
+  } else {
     n_dims = 2;
     dims[0] = ny;
     dims[1] = nx;
-    break;
-  default:
-    break;
   }
-
+  
   MPI_Bcast(&n_dims, 1, MPI_INT, 0, MPI_COMM_WORLD);
   MPI_Bcast(dims.data(), 2, MPI_INT, 0, MPI_COMM_WORLD);
 
-  MPI_Cart_create(MPI_COMM_WORLD, n_dims, dims.data(), periods.data(), 0, &cart_comm);
+  MPI_Cart_create(MPI_COMM_WORLD, n_dims, dims.data(), periods.data(), 1, &cart_comm);
   MPI_Comm_rank(cart_comm, &cart_rank);
   MPI_Cart_coords(cart_comm, cart_rank, n_dims, cart_coords.data());
 
-#if DBG
-  // printf("[%d] n_dims: %d dims: %d %d nx: %d ny: %d\n", mWorldRank, n_dims, dims[0], dims[1], nx, ny);
-  MPI_Barrier(MPI_COMM_WORLD);
-  if (mWorldRank == 0) {
-    int num_procs;
-    MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
-
-    // Print the Cartesian coordinates of each process
-    for (int i = 0; i < num_procs; i++) {
-        std::array<int, 2> coords;
-        int cart_rank;
-        MPI_Cart_coords(cart_comm, i, 2, coords.data());
-        MPI_Cart_rank(cart_comm, coords.data(), &cart_rank);
-        printf("Rank %d has Cartesian coordinates (%d, %d) and rank: %d\n", i, coords[0], coords[1], cart_rank);
-    }
+  // optimisation for only calculating this once
+  // rank's tile position for computeHaloZones()
+  if (decomp == 1) {
+    is_top = true;
+    is_bottom = true;
+    is_left = cart_coords[0] == 0;
+    is_right = cart_coords[0] == dims[0] - 1;
+  } else {
+    is_top = cart_coords[0] == 0;
+    is_bottom = cart_coords[0] == dims[0] - 1;
+    is_left = cart_coords[1] == 0;
+    is_right = cart_coords[1] == dims[1] - 1;
   }
-  MPI_Barrier(MPI_COMM_WORLD);
-#endif
 
-  // fill the neighbors array with MPI_PROC_NULL
   std::fill_n(neighbors.data(), 4, MPI_PROC_NULL);
 
   // calculate neighbors, MPI automatically assigns MPI_PROC_NULL
@@ -191,51 +120,12 @@ void ParallelHeatSolver::initGridTopology() {
     MPI_Cart_shift(cart_comm, 0, 1, &neighbors[0], &neighbors[2]);
   }
 
-#if DBG
-// if (mWorldRank < 2) {
-  MPI_Barrier(MPI_COMM_WORLD);
-  printf("\n");
-  printf("[%d] neighbors: ", mWorldRank);
-  for (int i = 0; i < 4; i++)
-  {
-    printf("%d, ", neighbors[i]);
-  }
-  printf("\n");
-  MPI_Barrier(MPI_COMM_WORLD);
-// }
-#endif
-
-#if DBG
-  printf("[%d] cart coords: %d %d\n", mWorldRank, cart_coords[0], cart_coords[1]);
-#endif
-
-  if (shouldComputeMiddleColumnAverageTemperature())
-  {
-#if DBG
-    printf("[%d] added to center col comm\n", mWorldRank);
-#endif
+  should_compute_average = shouldComputeMiddleColumnAverageTemperature();
+  if (should_compute_average) {
     MPI_Comm_split(MPI_COMM_WORLD, 0, mWorldRank, &center_col_comm);
-  }
-  else
-  {
-#if DBG
-    printf("[%d] not added to center col comm\n", mWorldRank);
-#endif
+  } else {
     MPI_Comm_split(MPI_COMM_WORLD, MPI_UNDEFINED, mWorldRank, &center_col_comm);
   }
-
-#if DBG
-  if (center_col_comm != MPI_COMM_NULL)
-  {
-    int s, r;
-    MPI_Comm_size(center_col_comm, &s);
-    MPI_Comm_rank(center_col_comm, &r);
-
-    printf("[%d] center col comm size: %d\n", mWorldRank, s);
-
-    printf("[%d] rank in center col comm: %d\n", mWorldRank, r);
-  }
-#endif
 }
 
 void ParallelHeatSolver::deinitGridTopology() {
@@ -243,7 +133,9 @@ void ParallelHeatSolver::deinitGridTopology() {
   /*      Deinitialize 2D grid topology and the middle column average temperature computation communicator              */
   /**********************************************************************************************************************/
   MPI_Comm_free(&cart_comm);
-  MPI_Comm_free(&center_col_comm);
+  if (center_col_comm != MPI_COMM_NULL) {
+    MPI_Comm_free(&center_col_comm);
+  }
 }
 
 void ParallelHeatSolver::initDataDistribution() {
@@ -253,14 +145,13 @@ void ParallelHeatSolver::initDataDistribution() {
   // global tile size
   global_edge_size = mMaterialProps.getEdgeSize();
   // calculate the local tile size
-  if (mSimulationProps.getDecomposition() == SimulationProperties::Decomposition::d2) {
+  if (decomp == 2) {
     tile_size_x = global_edge_size / dims[1];
     tile_size_y = global_edge_size / dims[0];
   } else {
     tile_size_x = global_edge_size / dims[0];
     tile_size_y = global_edge_size / dims[1];
   }
-  
 
   tile_size_with_halo_x = tile_size_x + (2 * haloZoneSize);
   tile_size_with_halo_y = tile_size_y + (2 * haloZoneSize);
@@ -295,11 +186,6 @@ void ParallelHeatSolver::initDataDistribution() {
   std::array local_tile_dims = {tile_size_y, tile_size_x};
   std::array<int, 2> start_arr = {haloZoneSize, haloZoneSize};
 
-#if DBG
-  printf("[%d] tile_size_with_halo_x: %d tile_size_with_halo_y: %d\n", mWorldRank, tile_size_with_halo_x, tile_size_with_halo_y);
-  printf("[%d] tile_size_x: %d tile_size_y: %d\n", mWorldRank, tile_size_x, tile_size_y);
-#endif
-
   MPI_Type_create_subarray(2, local_tile_with_halo_dims.data(), local_tile_dims.data(), start_arr.data(), MPI_ORDER_C, MPI_FLOAT, &local_tile_type_float);
   MPI_Type_commit(&local_tile_type_float);
 
@@ -313,45 +199,18 @@ void ParallelHeatSolver::initDataDistribution() {
 
   int nX = global_edge_size / tile_size_x;
 
-for (int i = 0; i < total_size; i++ ) {
-    int row = i / nX;
-    int col = i % nX;
-    displacements[i] = (row * tile_size_y * global_edge_size) + (col * tile_size_x);
-}
-
-#if DBG
-  if (mWorldRank == 0) {
-    printf("[%d] tile_size_x: %d tile_size_y: %d\n", mWorldRank, tile_size_x, tile_size_y);
-    printf("[%d] tile_size_with_halo_x: %d tile_size_with_halo_y: %d\n", mWorldRank, tile_size_with_halo_x, tile_size_with_halo_y);
-    printf("[%d] global_edge_size: %d\n", mWorldRank, global_edge_size);
+  for (int i = 0; i < total_size; i++ ) {
+      int row = i / nX;
+      int col = i % nX;
+      displacements[i] = (row * tile_size_y * global_edge_size) + (col * tile_size_x);
   }
-#endif
-
-#if DBG
-  if (mWorldRank == 0) {
-    printf("[%d] counts: ", mWorldRank);
-    for (int i = 0; i < total_size; i++)
-    {
-      printf("%d, ", counts[i]);
-    }
-    printf("\n");
-
-    printf("[%d] displacements: ", mWorldRank);
-    for (int i = 0; i < total_size; i++)
-    {
-      printf("%d, ", displacements[i]);
-    }
-    printf("\n");
-  }
-#endif
 }
 
 void ParallelHeatSolver::deinitDataDistribution() {
   /**********************************************************************************************************************/
   /*                       Deinitialize variables and MPI datatypes for data distribution.                              */
   /**********************************************************************************************************************/
-  if (mWorldRank == 0)
-  {
+  if (mWorldRank == 0) {
     MPI_Type_free(&global_tile_type_float);
     MPI_Type_free(&global_tile_type_int);
   }
@@ -528,20 +387,7 @@ void ParallelHeatSolver::computeHaloZones(const float *oldTemp, float *newTemp) 
   /*                        Use updateTile method to compute new temperatures in halo zones.                            */
   /*                             TAKE CARE NOT TO COMPUTE THE SAME AREAS TWICE                                          */
   /**********************************************************************************************************************/
-  bool is_top, is_bottom, is_left, is_right;
 
-  if (mSimulationProps.getDecomposition() == SimulationProperties::Decomposition::d1) {
-    is_top = true;
-    is_bottom = true;
-    is_left = cart_coords[0] == 0;
-    is_right = cart_coords[0] == dims[0] - 1;
-  } else {
-    is_top = cart_coords[0] == 0;
-    is_bottom = cart_coords[0] == dims[0] - 1;
-    is_left = cart_coords[1] == 0;
-    is_right = cart_coords[1] == dims[1] - 1;
-  }
-  
   if (tile_size_x < (int)(haloZoneSize * 2) || tile_size_y < (int)(haloZoneSize * 2)) {  
     if (is_left || is_right) return;
     updateTile(oldTemp, newTemp, tile_params.data(), tile_map.data(),
@@ -617,36 +463,24 @@ void ParallelHeatSolver::startHaloExchangeP2P(float *localData, std::array<MPI_R
 }
 
 void ParallelHeatSolver::startHaloExchangeRMA(float *localData, MPI_Win window) {
+  MPI_Win_fence(0, window);
   /**********************************************************************************************************************/
   /*                       Start the non-blocking halo zones exchange using RMA communication.                          */
   /*                   Do not forget that you put/get the values to/from the target's opposite side                     */
   /**********************************************************************************************************************/
   if (neighbors[ND::W] != MPI_PROC_NULL) {
-
-#if DBG
-    printf("[%d] Putting left\n", mWorldRank);
-#endif
     MPI_Put(localData, 1, halo_send_col_left_type_float, neighbors[ND::W], 0, 1, halo_receive_col_right_type_float, window);
   }
-  if (neighbors[ND::N] != MPI_PROC_NULL) {
 
-#if DBG
-    printf("[%d] Putting up\n", mWorldRank);
-#endif
+  if (neighbors[ND::N] != MPI_PROC_NULL) {
     MPI_Put(localData, 1, halo_send_row_up_type_float, neighbors[ND::N], 0, 1, halo_receive_row_down_type_float, window);
   }
-  if (neighbors[ND::E] != MPI_PROC_NULL) {
 
-#if DBG
-    printf("[%d] Putting right\n", mWorldRank);
-#endif
+  if (neighbors[ND::E] != MPI_PROC_NULL) {
     MPI_Put(localData, 1, halo_send_col_right_type_float, neighbors[ND::E], 0, 1, halo_receive_col_left_type_float, window);
   }
-  if (neighbors[ND::S] != MPI_PROC_NULL) {
 
-#if DBG
-    printf("[%d] Putting down\n", mWorldRank);
-#endif
+  if (neighbors[ND::S] != MPI_PROC_NULL) {
     MPI_Put(localData, 1, halo_send_row_down_type_float, neighbors[ND::S], 0, 1, halo_receive_row_up_type_float, window);
   }
 }
@@ -662,7 +496,7 @@ void ParallelHeatSolver::awaitHaloExchangeRMA(MPI_Win window) {
   /**********************************************************************************************************************/
   /*                       Wait for all halo zone exchanges to finalize using RMA communication.                        */
   /**********************************************************************************************************************/
-  MPI_Win_fence(MPI_MODE_NOSTORE | MPI_MODE_NOPRECEDE, window);
+  MPI_Win_fence(0, window);
 }
 
 void ParallelHeatSolver::run(std::vector<float, AlignedAllocator<float>> &outResult) {
@@ -682,67 +516,21 @@ void ParallelHeatSolver::run(std::vector<float, AlignedAllocator<float>> &outRes
   MPI_Bcast(&is_p2p_mode, 1, MPI_INT, 0, MPI_COMM_WORLD);
   
   scatterTiles(mMaterialProps.getDomainParameters().data(), tile_params.data());
-
   scatterTiles(mMaterialProps.getDomainMap().data(), tile_map.data());
-
   scatterTiles(mMaterialProps.getInitialTemperature().data(), tile_temps[OLD].data());
 
   /**********************************************************************************************************************/
   /* Exchange halo zones of initial domain temperature and parameters using P2P communication. Wait for them to finish. */
   /**********************************************************************************************************************/
-  initHaloExchange();
 
   // exchange termperature
   startHaloExchangeP2P(tile_temps[OLD].data(), requestsP2P);
   awaitHaloExchangeP2P(requestsP2P);
-  MPI_Barrier(MPI_COMM_WORLD);
-
-
-  // if (mWorldRank == 0) {
-  //   print_global_tile_float(mMaterialProps.getInitialTemperature().data());
-  // }
-  // MPI_Barrier(MPI_COMM_WORLD);
-  // if (cart_coords[0] == 0 && cart_coords[1] == 0) {
-  //   print_local_tile_float(tile_temps[OLD].data());
-  // }
-  // MPI_Barrier(MPI_COMM_WORLD);
-  // if (cart_coords[0] == 0 && cart_coords[1] == 1) {
-  //   print_local_tile_float(tile_temps[OLD].data());
-  // }
-  // // MPI_Barrier(MPI_COMM_WORLD);
-  // // if (cart_coords[0] == 3 && cart_coords[1] == 1) {
-  // //   print_local_tile_float(tile_temps[OLD].data());
-  // // }
-  // MPI_Barrier(MPI_COMM_WORLD);
 
   // exchange parameters
   startHaloExchangeP2P(tile_params.data(), requestsP2P);
   awaitHaloExchangeP2P(requestsP2P);
-#if DBG
-  MPI_Barrier(MPI_COMM_WORLD);
-  if (mWorldRank == 0) {
-    print_global_tile_float(mMaterialProps.getDomainParameters().data());
-  }
-  MPI_Barrier(MPI_COMM_WORLD);
-  // if (cart_coords[0] == 0 && cart_coords[1] == 0) {
-  //   print_local_tile_float(tile_params.data());
-  // }
-  MPI_Barrier(MPI_COMM_WORLD);
-  if (cart_coords[0] == 0 && cart_coords[1] == 1) {
-    print_local_tile_float(tile_params.data());
-  }
-  MPI_Barrier(MPI_COMM_WORLD);
-  if (cart_coords[0] == 1 && cart_coords[1] == 1) {
-    print_local_tile_float(tile_params.data());
-  }
-  MPI_Barrier(MPI_COMM_WORLD);
 
-  // MPI_Barrier(MPI_COMM_WORLD);
-  // if (cart_coords[0] == 3 && cart_coords[1] == 1) {
-  //   print_local_tile_float(tile_temps[OLD].data());
-  // }
-  MPI_Barrier(MPI_COMM_WORLD);
-#endif
   /**********************************************************************************************************************/
   /*                            Copy initial temperature to the second buffer.                                          */
   /**********************************************************************************************************************/
@@ -798,38 +586,16 @@ void ParallelHeatSolver::run(std::vector<float, AlignedAllocator<float>> &outRes
         }
       }
     }
-#if DBG
-    MPI_Barrier(MPI_COMM_WORLD);
-    if (cart_coords[0] == 4) {
-      print_local_tile_float(tile_temps[newIdx].data());
-    }
-    MPI_Barrier(MPI_COMM_WORLD);
-    // if (cart_coords[0] == 1 && cart_coords[1] == 1) {
-    //   print_local_tile_float(tile_temps[newIdx].data());
-    // }
-    // MPI_Barrier(MPI_COMM_WORLD);
-    // if (cart_coords[0] == 2 && cart_coords[1] == 1) {
-    //   print_local_tile_float(tile_temps[newIdx].data());
-    // }
-    // MPI_Barrier(MPI_COMM_WORLD);
-    
-    // if (cart_coords[0] == 3 && cart_coords[1] == 1) {
-    //   print_local_tile_float(tile_temps[newIdx].data());
-    // }
-    // MPI_Barrier(MPI_COMM_WORLD);
-#endif
 
-    if (shouldPrintProgress(iter) && shouldComputeMiddleColumnAverageTemperature()) {
+    if (shouldPrintProgress(iter) && should_compute_average) {
       /**********************************************************************************************************************/
       /*                 Compute and print middle column average temperature and print progress report.                     */
       /**********************************************************************************************************************/
       float par_avg = computeMiddleColumnAverageTemperatureParallel(tile_temps[newIdx].data());
       int rank_center_col{-1};
       MPI_Comm_rank(center_col_comm, & rank_center_col);
+      
       if (rank_center_col == 0) {
-#if DBG
-        printf("[%d] Printing progress report\n", mWorldRank);
-#endif
         printProgressReport(iter, par_avg);
       }
     }
@@ -841,23 +607,8 @@ void ParallelHeatSolver::run(std::vector<float, AlignedAllocator<float>> &outRes
 
   /**********************************************************************************************************************/
   /*                                     Gather final domain temperature.                                               */
-  // /**********************************************************************************************************************/
-  // MPI_Barrier(MPI_COMM_WORLD);
-  //   if (cart_coords[0] == 0) {
-  //     print_local_tile_float(tile_temps[resIdx].data());
-  //   }
-  // MPI_Barrier(MPI_COMM_WORLD);
-  // if (mWorldRank == 0) {
-  //   print_global_tile_float(outResult.data());
-  // }
-  // MPI_Barrier(MPI_COMM_WORLD);
+  /**********************************************************************************************************************/
   gatherTiles(tile_temps[resIdx].data(), outResult.data());
-    
-  // MPI_Barrier(MPI_COMM_WORLD);
-  // if (mWorldRank == 0) {
-  //   print_global_tile_float(outResult.data());
-  // }
-  // MPI_Barrier(MPI_COMM_WORLD);
 
   /**********************************************************************************************************************/
   /*           Compute (sequentially) and report final middle column temperature average and print final report.        */
@@ -866,7 +617,6 @@ void ParallelHeatSolver::run(std::vector<float, AlignedAllocator<float>> &outRes
     float seq_avg = computeMiddleColumnAverageTemperatureSequential(outResult.data());
     printFinalReport(elapsedTime, seq_avg);
   }
-  
 }
 
 bool ParallelHeatSolver::shouldComputeMiddleColumnAverageTemperature() const {
@@ -874,10 +624,8 @@ bool ParallelHeatSolver::shouldComputeMiddleColumnAverageTemperature() const {
   /*                Return true if rank should compute middle column average temperature.                               */
   /**********************************************************************************************************************/
 
-  if (mSimulationProps.getDecomposition() == SimulationProperties::Decomposition::d1) {
-    return dims[0] / 2 == cart_coords[0];
-  }
-  return dims[1] / 2 == cart_coords[1];
+  if (decomp == 1) return (dims[0] / 2 == cart_coords[0]);
+  return (dims[1] / 2 == cart_coords[1]);
 }
 
 float ParallelHeatSolver::computeMiddleColumnAverageTemperatureParallel(const float *localData) const {
@@ -889,7 +637,7 @@ float ParallelHeatSolver::computeMiddleColumnAverageTemperatureParallel(const fl
   
   float sum = 0.0f, total_sum{0.0f};
   
-  #pragma omp simd reduction(+:sum) aligned(localData: 64) simdlen(16)
+  #pragma omp parallel for simd reduction(+:sum) aligned(localData: 64) simdlen(16)
   for (int i = haloZoneSize; i < (int)(tile_size_y + haloZoneSize); i++) {
     sum += localData[i * tile_size_with_halo_x + col_index];
   }
@@ -905,7 +653,7 @@ float ParallelHeatSolver::computeMiddleColumnAverageTemperatureSequential(const 
   /**********************************************************************************************************************/
   float sum{.0f};
   int col_index = global_edge_size / 2;
-  #pragma omp simd reduction(+:sum) aligned(globalData: 64) simdlen(16)
+  #pragma omp parallel for simd reduction(+:sum) aligned(globalData: 64) simdlen(16)
   for (int i = 0; i < global_edge_size; i++) {
     sum += globalData[i * global_edge_size + col_index];
   }
@@ -927,18 +675,16 @@ void ParallelHeatSolver::storeDataIntoFileSequential(hid_t fileHandle,
   storeDataIntoFile(fileHandle, iteration, globalData);
 }
 
-// TODO: REMOVE
-// #define H5_HAVE_PARALLEL 1
-
 void ParallelHeatSolver::openOutputFileParallel() {
 #ifdef H5_HAVE_PARALLEL
-  Hdf5PropertyListHandle faplHandle{H5Pcreate(H5P_FILE_ACCESS)};
 
   /**********************************************************************************************************************/
   /*                          Open output HDF5 file for parallel access with alignment.                                 */
   /*      Set up faplHandle to use MPI-IO and alignment. The handle will automatically release the resource.            */
   /**********************************************************************************************************************/
-  herr_t status = H5Pset_fapl_mpio(faplHandle, MPI_COMM_WORLD, MPI_INFO_NULL);
+  Hdf5PropertyListHandle faplHandle{H5Pcreate(H5P_FILE_ACCESS)};
+  herr_t status_mpio = H5Pset_fapl_mpio(faplHandle, cart_comm, MPI_INFO_NULL);
+  herr_t status_align = H5Pset_alignment(faplHandle, 0, 4096);
 
   mFileHandle = H5Fcreate(mSimulationProps.getOutputFileName(codeType).c_str(),
                           H5F_ACC_TRUNC,
@@ -947,6 +693,23 @@ void ParallelHeatSolver::openOutputFileParallel() {
   if (!mFileHandle.valid()) {
     throw std::ios::failure("Cannot create output file!");
   }
+
+  // optimisation to only calculate it once
+  // compute the tile offsets and sizes.
+  if (decomp == 1) {
+    tileOffset[0] = 0;
+    tileOffset[1] = cart_coords[0] * tile_size_x;
+  } else {
+    tileOffset[0] = cart_coords[0] * tile_size_y;
+    tileOffset[1] = cart_coords[1] * tile_size_x;
+  }
+  
+  // tile sizes for parallel I/O
+  global_grid_size = {mMaterialProps.getEdgeSize(), mMaterialProps.getEdgeSize()};
+  local_tile_size_with_halo[0] = tile_size_with_halo_y;
+  local_tile_size_with_halo[1] = tile_size_with_halo_x;
+  local_tile_size[0] = tile_size_y;
+  local_tile_size[1] = tile_size_x;
 #else
   throw std::runtime_error("Parallel HDF5 support is not available!");
 #endif /* H5_HAVE_PARALLEL */
@@ -973,23 +736,6 @@ void ParallelHeatSolver::storeDataIntoFileParallel(hid_t fileHandle,
     /*                                Compute the tile offsets and sizes.                                                 */
     /*               Note that the X and Y coordinates are swapped (but data not altered).                                */
     /**********************************************************************************************************************/
-    std::array<hsize_t, 2> tileOffset;
-    // compute the tile offsets and sizes.
-    if (mSimulationProps.getDecomposition() == SimulationProperties::Decomposition::d1) {
-      tileOffset[0] = 0;
-      tileOffset[1] = cart_coords[0] * tile_size_x;
-    } else {
-      tileOffset[0] = cart_coords[0] * tile_size_y;
-      tileOffset[1] = cart_coords[1] * tile_size_x;
-    }
-
-#if DBG    
-    printf("[%d] cart coords: %d %d\n", mWorldRank, cart_coords[0], cart_coords[1]);
-#endif
-
-    std::array<hsize_t, 2> global_grid_size = {mMaterialProps.getEdgeSize(), mMaterialProps.getEdgeSize()};
-    std::array<hsize_t, 2> local_tile_size_with_halo = {tile_size_with_halo_y, tile_size_with_halo_x};
-    std::array<hsize_t, 2> local_tile_size = {tile_size_y, tile_size_x};
 
     // Create new dataspace and dataset using it.
     static constexpr std::string_view dataSetName{"Temperature"};
@@ -1020,7 +766,6 @@ void ParallelHeatSolver::storeDataIntoFileParallel(hid_t fileHandle,
     H5Sselect_hyperslab(memSpaceHandle, H5S_SELECT_SET, start_tile_halo.data(), nullptr, local_tile_size.data(), nullptr);
     H5Sselect_hyperslab(dataSpaceHandle, H5S_SELECT_SET, tileOffset.data(), nullptr, local_tile_size.data(), nullptr);
 
-    
     /**********************************************************************************************************************/
     /*              Perform collective write operation, writting tiles from all processes at once.                        */
     /*                                   Set up the propListHandle variable.                                              */
