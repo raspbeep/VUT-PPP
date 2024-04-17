@@ -18,7 +18,6 @@
 #include <vector>
 
 #include <hdf5.h>
-#include <mpi.h>
 
 #include "AlignedAllocator.hpp"
 #include "Hdf5Handle.hpp"

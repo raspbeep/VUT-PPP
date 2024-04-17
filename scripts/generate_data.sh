@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-source ./load_modules.sh
+source load_modules.sh
 
 # domain sizes
 declare -a sizes=(256 512 1024 2048 4096)

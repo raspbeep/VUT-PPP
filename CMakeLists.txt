@@ -25,6 +25,8 @@ set(ALLOW_OPENMP ON CACHE BOOL "Allow OpenMP for multi-threading")
 # Enable unity build
 set(CMAKE_UNITY_BUILD ON)
 
+include_directories(/usr/lib/x86_64-linux-gnu/openmpi/include)
+
 # Find MPI package
 set(MPI_CXX_SKIP_MPICXX ON) # Do not use mpicxx wrapper
 find_package(MPI REQUIRED COMPONENTS CXX)

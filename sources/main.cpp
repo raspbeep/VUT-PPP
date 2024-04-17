@@ -99,7 +99,7 @@ int main(int argc, char *argv[])
       {
         if(!simulationProps.isBatchMode())
         {
-          fmt::print("============= Running parallel solver ==============\n");
+          fmt::print("============= Running parallel solver ==============");
         }
 
         parallelResult.resize(materialProps.getGridPointCount());

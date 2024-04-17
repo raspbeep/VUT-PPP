@@ -1,3 +1,15 @@
+/**
+ * @file    ParallelHeatSolver.hpp
+ * 
+ * @author  Name Surname <xlogin00@fit.vutbr.cz>
+ *
+ * @brief   Course: PPP 2023/2024 - Project 1
+ *          This file contains implementation of parallel heat equation solver
+ *          using MPI/OpenMP hybrid approach.
+ *
+ * @date    2024-02-23
+ */
+
 #ifndef PARALLEL_HEAT_SOLVER_HPP
 #define PARALLEL_HEAT_SOLVER_HPP
 
@@ -11,6 +23,27 @@
 #include "AlignedAllocator.hpp"
 #include "Hdf5Handle.hpp"
 #include "HeatSolverBase.hpp"
+
+// Neighbor directions for indexing in neighbor array
+enum ND {
+  W  = 0,
+  N  = 1,
+  E  = 2,
+  S  = 3
+};
+
+constexpr int OLD = 0;
+constexpr int NEW = 1;
+
+constexpr int TO_N = 0;
+constexpr int TO_S = 1;
+constexpr int TO_E = 2;
+constexpr int TO_W = 3;
+
+constexpr int FROM_N = 1;
+constexpr int FROM_S = 0;
+constexpr int FROM_E = 3;
+constexpr int FROM_W = 2;
 
 /**
  * @brief The ParallelHeatSolver class implements parallel MPI based heat
@@ -53,6 +86,81 @@ class ParallelHeatSolver : public HeatSolverBase
     virtual void run(std::vector<float, AlignedAllocator<float>>& outResult) override;
 
   protected:
+    int n_dims;
+    bool should_compute_average;
+    std::array<int, 2> dims;
+    std::array<int, 2> local_tile_with_halo_dims;
+    int total_size;
+    MPI_Comm cart_comm;
+    int cart_rank;
+    std::array<int, 2> cart_coords;
+    std::array<int, 4> neighbors;
+    int decomp;
+
+    MPI_Comm center_col_comm;
+    // rank's tile position
+    bool is_top, is_bottom, is_left, is_right;
+
+    std::unique_ptr<int[]> counts;
+    std::unique_ptr<int[]> displacements;
+    float heater_temp;
+    float cooler_temp;
+    int interation_count;
+    int is_p2p_mode;
+
+    int global_edge_size;
+    int tile_size_x, tile_size_y;
+    int tile_size_with_halo_x, tile_size_with_halo_y;
+
+    MPI_Datatype global_tile_type_float;
+    MPI_Datatype global_tile_type_int;
+    
+    // local tile type (with halo borders)
+    MPI_Datatype local_tile_type_int;
+    // local tile type (with halo borders)
+    MPI_Datatype local_tile_type_float;
+    
+    // hallo exchange types
+    MPI_Datatype halo_send_row_up_type_int;
+    MPI_Datatype halo_send_row_up_type_float;
+
+    MPI_Datatype halo_send_row_down_type_int;
+    MPI_Datatype halo_send_row_down_type_float;
+    
+    MPI_Datatype halo_send_col_left_type_int;
+    MPI_Datatype halo_send_col_left_type_float;
+
+    MPI_Datatype halo_send_col_right_type_int;
+    MPI_Datatype halo_send_col_right_type_float;
+  
+    MPI_Datatype halo_receive_row_up_type_int;
+    MPI_Datatype halo_receive_row_up_type_float;
+
+    MPI_Datatype halo_receive_row_down_type_int;
+    MPI_Datatype halo_receive_row_down_type_float;
+    
+    MPI_Datatype halo_receive_col_left_type_int;
+    MPI_Datatype halo_receive_col_left_type_float;
+
+    MPI_Datatype halo_receive_col_right_type_int;
+    MPI_Datatype halo_receive_col_right_type_float;
+
+    std::array<MPI_Win, 2> wins;
+
+    AlignedAllocator<int> intAllocator;
+    AlignedAllocator<float> floatAllocator;
+
+    std::vector<float, AlignedAllocator<float>> domain;
+
+    std::vector<int, AlignedAllocator<float>> tile_map;
+    std::vector<float, AlignedAllocator<float>> tile_params;
+    std::array<std::vector<float, AlignedAllocator<float>>, 2> tile_temps;
+
+    std::array<hsize_t, 2> global_grid_size, local_tile_size, local_tile_size_with_halo;
+
+    // for parallel I/O
+    std::array<hsize_t, 2> tileOffset;
+
   private:
     /**
      * @brief Get type of the code.
@@ -222,99 +330,6 @@ class ParallelHeatSolver : public HeatSolverBase
 
     /// @brief Output file handle (parallel or sequential).
     Hdf5FileHandle mFileHandle{};
-
-    /// @brief MPI communicator for grid topology.
-    MPI_Comm MPI_GRID_TOPOLOGY{MPI_COMM_NULL};
-
-    /// @brief MPI communicator for calculating average temperature of the middle column.
-    MPI_Comm MPI_MIDDLE_COLUMN_AVG_COMM{MPI_COMM_NULL};
-
-    /// @brief MPI datatype for integer worker tile.
-    MPI_Datatype MPI_WORKER_TYPE_INT{MPI_DATATYPE_NULL};
-
-    /// @brief MPI datatype for integer farmer tile.
-    MPI_Datatype MPI_FARMER_TYPE_INT{MPI_DATATYPE_NULL};
-
-    /// @brief MPI resized datatype for integer farmer tile.
-    MPI_Datatype MPI_FARMER_TYPE_RESIZED_INT{MPI_DATATYPE_NULL};
-
-    /// @brief MPI datatype for float worker tile.
-    MPI_Datatype MPI_WORKER_TYPE_FLOAT{MPI_DATATYPE_NULL};
-
-    /// @brief MPI datatype for float farmer tile.
-    MPI_Datatype MPI_FARMER_TYPE_FLOAT{MPI_DATATYPE_NULL};
-
-    /// @brief MPI resized datatype for float farmer tile.
-    MPI_Datatype MPI_FARMER_TYPE_RESIZED_FLOAT{MPI_DATATYPE_NULL};
-
-    /// @brief MPI datatype for float halo zone column.
-    MPI_Datatype MPI_HALO_COL_TYPE_FLOAT{MPI_DATATYPE_NULL};
-
-    /// @brief MPI datatype for float halo zone row.
-    MPI_Datatype MPI_HALO_ROW_TYPE_FLOAT{MPI_DATATYPE_NULL};
-
-    /// @brief MPI window for halo zone communication.
-    MPI_Win MPI_HALO_TILE_WIN[2]{MPI_WIN_NULL};
-
-    /// @brief Size of the local data array.
-    size_t localDataSize{};
-
-    /// @brief Size of the global data array.
-    size_t globalDataSize{};
-
-    /// @brief Width of the tile.
-    size_t tileWidth{};
-
-    /// @brief Height of the tile.
-    size_t tileHeight{};
-
-    /// @brief Width of the tile with halo zones.
-    int width{};
-
-    /// @brief Local domain map.
-    std::vector<int, AlignedAllocator<int>> domainMapLocal{};
-
-    /// @brief Local domain parameters.
-    std::vector<float, AlignedAllocator<float>> domainParametersLocal{};
-
-    /// @brief Local temporary arrays.
-    std::array<std::vector<float, AlignedAllocator<float>>, 2> tempArraysLocal{
-                              {std::vector<float, AlignedAllocator<float>>{},
-                               std::vector<float, AlignedAllocator<float>>{}}};
-
-    /// @brief Neighbour ranks.
-    int neighbours[4]{};
-
-    /// @brief Neighbour ranks shifted by two.
-    int neighboursShiftedByTwo[4]{};
-
-    /// @brief Rank in the grid topology.
-    int mGridTopologyRank{};
-
-    /// @brief Size of the grid topology.
-    int mGridTopologySize{};
-
-    /// @brief Rank for computing middle column average.
-    int mMiddleColumnAvgRank{};
-
-    /// @brief Size for computing middle column average.
-    int mMiddleColumnAvgSize{};
-
-    /// @brief Number of dimensions.
-    int ndims{};
-
-    /// @brief Grid dimension in X.
-    int nx{};
-
-    /// @brief Grid dimension in Y.
-    int ny{};
-
-    /// @brief Enum for specifying neighbour positions.
-    enum Neighbours {LEFT, TOP, RIGHT, BOTTOM};
-
-    /// @brief MPI root rank.
-    int MPI_ROOT_RANK{0};
-
 };
 
 #endif /* PARALLEL_HEAT_SOLVER_HPP */

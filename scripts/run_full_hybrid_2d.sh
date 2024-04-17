@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #SBATCH --account=DD-23-135
-#SBATCH --job-name=PPP_PROJ01_HYBRID_2D
-#SBATCH -p qcpu_exp
-#SBATCH -t 01:00:00
+#SBATCH --job-name=hybrid_2d
+#SBATCH -p qcpu
+#SBATCH -t 05:00:00
 #SBATCH -N 8
 #SBATCH --ntasks-per-node=4
 #SBATCH --cpus-per-task=8
@@ -21,16 +21,14 @@ BINARY_PATH="../build/ppp_proj01"
 rm -f $STDOUT_FILE $STDERR_FILE
 
 USER_SCRATCH_PATH=/scratch/project/dd-23-135/$USER
-
-mkdir -p $USER_SCRATCH_PATH
-
 OUT_FILE_PATH=$USER_SCRATCH_PATH/$SLURM_JOBID
 
+mkdir -p $USER_SCRATCH_PATH
 mkdir -p $OUT_FILE_PATH
 
 # Doplnte vhodne nastavenie Lustre file system #
 ################################################
-lfs setstripe -S 512k -c 4 /scratch/project/dd-23-135/$USER
+lfs setstripe -S 1M -c 16 $OUT_FILE_PATH
 ################################################
 
 DISK_WRITE_INTENSITY=50
@@ -61,24 +59,13 @@ for procs in ${PROCESSES[*]}; do
         INPUT=input_data_$size.h5
         OUTPUT=$OUT_FILE_PATH/${size}x${size}_out_hybrid_2d.h5
         
-        # srun -N $nnodes -n $procs $BINARY_PATH $B -g    -n $n_iters -m $modeP2P -w $DISK_WRITE_INTENSITY -i $INPUT -t $OMP_NUM_THREADS            >> $STDOUT_FILE 2>> $STDERR_FILE
-        # srun -N $nnodes -n $procs $BINARY_PATH -b -g    -n $n_iters -m $modeP2P -w $DISK_WRITE_INTENSITY -i $INPUT -t $OMP_NUM_THREADS -o $OUTPUT >> $STDOUT_FILE 2>> $STDERR_FILE
-        # srun -N $nnodes -n $procs $BINARY_PATH -b -g -p -n $n_iters -m $modeP2P -w $DISK_WRITE_INTENSITY -i $INPUT -t $OMP_NUM_THREADS -o $OUTPUT >> $STDOUT_FILE 2>> $STDERR_FILE
+        srun -N $nnodes -n $procs $BINARY_PATH $B -g    -n $n_iters -m $modeP2P -w $DISK_WRITE_INTENSITY -i $INPUT -t $OMP_NUM_THREADS            >> $STDOUT_FILE 2>> $STDERR_FILE
+        srun -N $nnodes -n $procs $BINARY_PATH -b -g    -n $n_iters -m $modeP2P -w $DISK_WRITE_INTENSITY -i $INPUT -t $OMP_NUM_THREADS -o $OUTPUT >> $STDOUT_FILE 2>> $STDERR_FILE
+        srun -N $nnodes -n $procs $BINARY_PATH -b -g -p -n $n_iters -m $modeP2P -w $DISK_WRITE_INTENSITY -i $INPUT -t $OMP_NUM_THREADS -o $OUTPUT >> $STDOUT_FILE 2>> $STDERR_FILE
 
-        # srun -N $nnodes -n $procs $BINARY_PATH -b -g    -n $n_iters -m $modeRMA -w $DISK_WRITE_INTENSITY -i $INPUT -t $OMP_NUM_THREADS            >> $STDOUT_FILE 2>> $STDERR_FILE
-        # srun -N $nnodes -n $procs $BINARY_PATH -b -g    -n $n_iters -m $modeRMA -w $DISK_WRITE_INTENSITY -i $INPUT -t $OMP_NUM_THREADS -o $OUTPUT >> $STDOUT_FILE 2>> $STDERR_FILE
-        # srun -N $nnodes -n $procs $BINARY_PATH -b -g -p -n $n_iters -m $modeRMA -w $DISK_WRITE_INTENSITY -i $INPUT -t $OMP_NUM_THREADS -o $OUTPUT >> $STDOUT_FILE 2>> $STDERR_FILE
-        for cmd in \
-            "srun -N $nnodes -n $procs $BINARY_PATH $B -g    -n $n_iters -m $modeP2P -w $DISK_WRITE_INTENSITY -i $INPUT -t $OMP_NUM_THREADS" \
-            "srun -N $nnodes -n $procs $BINARY_PATH -b -g    -n $n_iters -m $modeP2P -w $DISK_WRITE_INTENSITY -i $INPUT -t $OMP_NUM_THREADS -o $OUTPUT" \
-            "srun -N $nnodes -n $procs $BINARY_PATH -b -g -p -n $n_iters -m $modeP2P -w $DISK_WRITE_INTENSITY -i $INPUT -t $OMP_NUM_THREADS -o $OUTPUT" \
-            "srun -N $nnodes -n $procs $BINARY_PATH -b -g    -n $n_iters -m $modeRMA -w $DISK_WRITE_INTENSITY -i $INPUT -t $OMP_NUM_THREADS" \
-            "srun -N $nnodes -n $procs $BINARY_PATH -b -g    -n $n_iters -m $modeRMA -w $DISK_WRITE_INTENSITY -i $INPUT -t $OMP_NUM_THREADS -o $OUTPUT" \
-            "srun -N $nnodes -n $procs $BINARY_PATH -b -g -p -n $n_iters -m $modeRMA -w $DISK_WRITE_INTENSITY -i $INPUT -t $OMP_NUM_THREADS -o $OUTPUT"
-        do
-            echo $cmd 1>&2
-            $cmd >> $STDOUT_FILE 2>> $STDERR_FILE
-        done
+        srun -N $nnodes -n $procs $BINARY_PATH -b -g    -n $n_iters -m $modeRMA -w $DISK_WRITE_INTENSITY -i $INPUT -t $OMP_NUM_THREADS            >> $STDOUT_FILE 2>> $STDERR_FILE
+        srun -N $nnodes -n $procs $BINARY_PATH -b -g    -n $n_iters -m $modeRMA -w $DISK_WRITE_INTENSITY -i $INPUT -t $OMP_NUM_THREADS -o $OUTPUT >> $STDOUT_FILE 2>> $STDERR_FILE
+        srun -N $nnodes -n $procs $BINARY_PATH -b -g -p -n $n_iters -m $modeRMA -w $DISK_WRITE_INTENSITY -i $INPUT -t $OMP_NUM_THREADS -o $OUTPUT >> $STDOUT_FILE 2>> $STDERR_FILE
 
         rm -f $OUTPUT
     done

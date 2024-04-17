@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #SBATCH --account=DD-23-135
-#SBATCH --job-name=PPP_PROJ01_MPI
+#SBATCH --job-name=mpi_2d
 #SBATCH -p qcpu
 #SBATCH -t 05:00:00
 #SBATCH -N 4
@@ -20,16 +20,14 @@ BINARY_PATH="../build/ppp_proj01"
 rm -f $STDOUT_FILE $STDERR_FILE
 
 USER_SCRATCH_PATH=/scratch/project/dd-23-135/$USER
-
-mkdir -p $USER_SCRATCH_PATH
-
 OUT_FILE_PATH=$USER_SCRATCH_PATH/$SLURM_JOBID
 
+mkdir -p $USER_SCRATCH_PATH
 mkdir -p $OUT_FILE_PATH
 
 # Doplnte vhodne nastavenie Lustre file system #
 ################################################
-lfs setstripe -S 512k -c 4 /scratch/project/dd-23-135/$USER
+lfs setstripe -S 1M -c 16 $OUT_FILE_PATH
 ################################################
 
 DISK_WRITE_INTENSITY=50
