@@ -121,23 +121,23 @@ std::pair<bool, ErrorInfo> verifyResults(const float* result,
                                          float        epsilon)
 {
   ErrorInfo errorInfo{};
-    printf("\n My result:\n");
-  int row_size = 128;
-  for (int r = 0 ; r < row_size ; r++) {
-    for (int c = 0 ; c < row_size ; c++) {
-      printf("%f ", result[r * row_size + c]);
-      if (c % row_size == row_size - 1) printf("| ");
-    }
-    printf("\n");
-  }
-  printf("\n Reference result:\n");
-  for (int r = 0 ; r < row_size ; r++) {
-    for (int c = 0 ; c < row_size ; c++) {
-      printf("%f ", refResult[r * row_size + c]);
-      if (c % row_size == row_size - 1) printf("| ");
-    }
-    printf("\n");
-  }
+  // printf("\n My result:\n");
+  // int row_size = 32;
+  // for (int r = 0 ; r < row_size ; r++) {
+  //   for (int c = 0 ; c < row_size ; c++) {
+  //     printf("%f ", result[r * row_size + c]);
+  //     if (c % row_size == row_size - 1) printf("| ");
+  //   }
+  //   printf("\n");
+  // }
+  // printf("\n Reference result:\n");
+  // for (int r = 0 ; r < row_size ; r++) {
+  //   for (int c = 0 ; c < row_size ; c++) {
+  //     printf("%f ", refResult[r * row_size + c]);
+  //     if (c % row_size == row_size - 1) printf("| ");
+  //   }
+  //   printf("\n");
+  // }
 
   for(std::size_t i = 0; i < gridPointCount; ++i)
   {

@@ -1,3 +1,15 @@
+/**
+ * @file    ParallelHeatSolver.hpp
+ * 
+ * @author  Pavel Kratochvíl <xkrato61@fit.vutbr.cz>
+ *
+ * @brief   Course: PPP 2023/2024 - Project 1
+ *          This file contains implementation of parallel heat equation solver
+ *          using MPI/OpenMP hybrid approach.
+ *
+ * @date    2024-04-26
+ */
+
 #ifndef PARALLEL_HEAT_SOLVER_HPP
 #define PARALLEL_HEAT_SOLVER_HPP
 
@@ -11,6 +23,27 @@
 #include "AlignedAllocator.hpp"
 #include "Hdf5Handle.hpp"
 #include "HeatSolverBase.hpp"
+
+// Neighbor directions for indexing in neighbor array
+enum ND {
+  W  = 0,
+  N  = 1,
+  E  = 2,
+  S  = 3
+};
+
+constexpr int OLD = 0;
+constexpr int NEW = 1;
+
+constexpr int TO_N = 0;
+constexpr int TO_S = 1;
+constexpr int TO_E = 2;
+constexpr int TO_W = 3;
+
+constexpr int FROM_N = 1;
+constexpr int FROM_S = 0;
+constexpr int FROM_E = 3;
+constexpr int FROM_W = 2;
 
 /**
  * @brief The ParallelHeatSolver class implements parallel MPI based heat
@@ -220,101 +253,167 @@ class ParallelHeatSolver : public HeatSolverBase
     /// @brief Total number of processes in MPI_COMM_WORLD.
     int mWorldSize{};
 
+    /// @brief rank the center col communicator
+    int mCenterColCommRank{};
+
+    /// @brief rank the cartesian topology communicator
+    int mCartRank{};
+
     /// @brief Output file handle (parallel or sequential).
     Hdf5FileHandle mFileHandle{};
+    
+    /// @brief count of processors in x direction
+    int nx;
 
-    /// @brief MPI communicator for grid topology.
-    MPI_Comm MPI_GRID_TOPOLOGY{MPI_COMM_NULL};
+    /// @brief count of processors in y direction
+    int ny;
+    
+    /// @brief number of dimensions for decomposition
+    int n_dims;
+    
+    /// @brief decomposition type
+    int decomp;
+    
+    /// @brief true if the rank contains the middle column
+    bool should_compute_average;
+    
+    /// @brief dimensions of the topology (in 1d, only the first value used)
+    std::array<int, 2> dims;
+    
+    /// @brief for storage cartesion coordinates
+    std::array<int, 2> cart_coords;
+    
+    /// @brief storage of neighbor ranks in all directions
+    std::array<int, 4> neighbors;
+    
+    /// @brief offset of the local data in the local array (which contains halo zones around it)
+    std::array<int, 2> start_arr;
+    
+    /// @brief dimensions of the local tile without halo zones
+    std::array<int, 2> local_tile_dims;
+    
+    /// @brief dimensions of the local tile with halo border (x + 2) * (y + 2)
+    std::array<int, 2> local_tile_with_halo_dims;
 
-    /// @brief MPI communicator for calculating average temperature of the middle column.
-    MPI_Comm MPI_MIDDLE_COLUMN_AVG_COMM{MPI_COMM_NULL};
+    /// @brief cartesian topology communicator
+    MPI_Comm cart_comm;
+    
+    /// @brief center column communication for middle column average calculation
+    MPI_Comm center_col_comm;
+    
+    /// @brief indications of the location for computeHaloZones()
+    bool is_top, is_bottom, is_left, is_right;
 
-    /// @brief MPI datatype for integer worker tile.
-    MPI_Datatype MPI_WORKER_TYPE_INT{MPI_DATATYPE_NULL};
+    /// @brief array containing counts of tiles for each rannk (full of ones)
+    std::unique_ptr<int[]> counts;
+    
+    /// @brief array containing displacements of individual tiles in the global domain
+    std::unique_ptr<int[]> displacements;
+    
+    /// @brief for broadcasting initial parameters
+    float heater_temp;
+    
+    /// @brief for broadcasting initial parameters
+    float cooler_temp;
+    
+    /// @brief for broadcasting initial parameters
+    int interation_count;
+    
+    /// @brief for broadcasting initial parameters
+    int is_p2p_mode;
 
-    /// @brief MPI datatype for integer farmer tile.
-    MPI_Datatype MPI_FARMER_TYPE_INT{MPI_DATATYPE_NULL};
+    /// @brief size of the entire domain
+    int global_edge_size;
+    
+    /// @brief local tile size
+    int tile_size_x, tile_size_y;
+    
+    /// @brief tile size with 
+    int tile_size_with_halo_x, tile_size_with_halo_y;
+    
+    /// @brief tile for distribution from root rank
+    MPI_Datatype global_tile_type_float;
+    
+    /// @brief tile for distribution from root rank
+    MPI_Datatype global_tile_type_int;
+    
+    /// @brief local int tile type (with halo borders)
+    MPI_Datatype local_tile_type_int;
+    
+    /// @brief local tile float type (with halo borders)
+    MPI_Datatype local_tile_type_float;
+    
+    /// @brief halo exchange type
+    MPI_Datatype halo_send_row_up_type_int;
+    
+    /// @brief halo exchange type
+    MPI_Datatype halo_send_row_up_type_float;
 
-    /// @brief MPI resized datatype for integer farmer tile.
-    MPI_Datatype MPI_FARMER_TYPE_RESIZED_INT{MPI_DATATYPE_NULL};
+    /// @brief halo exchange type
+    MPI_Datatype halo_send_row_down_type_int;
+    
+    /// @brief halo exchange type
+    MPI_Datatype halo_send_row_down_type_float;
+    
+    /// @brief halo exchange type
+    MPI_Datatype halo_send_col_left_type_int;
+    
+    /// @brief halo exchange type
+    MPI_Datatype halo_send_col_left_type_float;
 
-    /// @brief MPI datatype for float worker tile.
-    MPI_Datatype MPI_WORKER_TYPE_FLOAT{MPI_DATATYPE_NULL};
+    /// @brief halo exchange type
+    MPI_Datatype halo_send_col_right_type_int;
+    
+    /// @brief halo exchange type
+    MPI_Datatype halo_send_col_right_type_float;
+  
+    /// @brief halo exchange type
+    MPI_Datatype halo_receive_row_up_type_int;
+    
+    /// @brief halo exchange type
+    MPI_Datatype halo_receive_row_up_type_float;
 
-    /// @brief MPI datatype for float farmer tile.
-    MPI_Datatype MPI_FARMER_TYPE_FLOAT{MPI_DATATYPE_NULL};
+    /// @brief halo exchange type
+    MPI_Datatype halo_receive_row_down_type_int;
+    
+    /// @brief halo exchange type
+    MPI_Datatype halo_receive_row_down_type_float;
+    
+    /// @brief halo exchange type
+    MPI_Datatype halo_receive_col_left_type_int;
+    
+    /// @brief halo exchange type
+    MPI_Datatype halo_receive_col_left_type_float;
 
-    /// @brief MPI resized datatype for float farmer tile.
-    MPI_Datatype MPI_FARMER_TYPE_RESIZED_FLOAT{MPI_DATATYPE_NULL};
+    /// @brief halo exchange type
+    MPI_Datatype halo_receive_col_right_type_int;
+    
+    /// @brief halo exchange type
+    MPI_Datatype halo_receive_col_right_type_float;
 
-    /// @brief MPI datatype for float halo zone column.
-    MPI_Datatype MPI_HALO_COL_TYPE_FLOAT{MPI_DATATYPE_NULL};
-
-    /// @brief MPI datatype for float halo zone row.
-    MPI_Datatype MPI_HALO_ROW_TYPE_FLOAT{MPI_DATATYPE_NULL};
-
-    /// @brief MPI window for halo zone communication.
-    MPI_Win MPI_HALO_TILE_WIN[2]{MPI_WIN_NULL};
-
-    /// @brief Size of the local data array.
-    size_t localDataSize{};
-
-    /// @brief Size of the global data array.
-    size_t globalDataSize{};
-
-    /// @brief Width of the tile.
-    size_t tileWidth{};
-
-    /// @brief Height of the tile.
-    size_t tileHeight{};
-
-    /// @brief Width of the tile with halo zones.
-    int width{};
-
-    /// @brief Local domain map.
-    std::vector<int, AlignedAllocator<int>> domainMapLocal{};
-
-    /// @brief Local domain parameters.
-    std::vector<float, AlignedAllocator<float>> domainParametersLocal{};
-
-    /// @brief Local temporary arrays.
-    std::array<std::vector<float, AlignedAllocator<float>>, 2> tempArraysLocal{
-                              {std::vector<float, AlignedAllocator<float>>{},
-                               std::vector<float, AlignedAllocator<float>>{}}};
-
-    /// @brief Neighbour ranks.
-    int neighbours[4]{};
-
-    /// @brief Neighbour ranks shifted by two.
-    int neighboursShiftedByTwo[4]{};
-
-    /// @brief Rank in the grid topology.
-    int mGridTopologyRank{};
-
-    /// @brief Size of the grid topology.
-    int mGridTopologySize{};
-
-    /// @brief Rank for computing middle column average.
-    int mMiddleColumnAvgRank{};
-
-    /// @brief Size for computing middle column average.
-    int mMiddleColumnAvgSize{};
-
-    /// @brief Number of dimensions.
-    int ndims{};
-
-    /// @brief Grid dimension in X.
-    int nx{};
-
-    /// @brief Grid dimension in Y.
-    int ny{};
-
-    /// @brief Enum for specifying neighbour positions.
-    enum Neighbours {LEFT, TOP, RIGHT, BOTTOM};
-
-    /// @brief MPI root rank.
-    int MPI_ROOT_RANK{0};
-
+    /// @brief windows for RMA data exchange
+    std::array<MPI_Win, 2> wins;
+    
+    /// @brief aligned memory for array of tile map
+    std::vector<int, AlignedAllocator<float>> tile_map;
+    
+    /// @brief aligned memory for array of tile params
+    std::vector<float, AlignedAllocator<float>> tile_params;
+    
+    /// @brief aligned memory for 2d array of local tile temperatures
+    std::array<std::vector<float, AlignedAllocator<float>>, 2> tile_temps;
+    
+    /// @brief tile size for dataset
+    std::array<hsize_t, 2> local_tile_size;
+    
+    /// @brief tile size for memory space
+    std::array<hsize_t, 2> local_tile_size_with_halo;
+    
+    /// @brief offset in data space hyperslab
+    std::array<hsize_t, 2> tileOffset;
+    
+    /// @brief offset in memory space hyperslab
+    std::array<hsize_t, 2> start_tile_halo;
 };
 
 #endif /* PARALLEL_HEAT_SOLVER_HPP */
