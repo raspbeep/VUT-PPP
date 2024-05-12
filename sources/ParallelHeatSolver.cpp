@@ -399,7 +399,7 @@ void ParallelHeatSolver::computeHaloZones(const float *oldTemp, float *newTemp) 
   /*                             TAKE CARE NOT TO COMPUTE THE SAME AREAS TWICE                                          */
   /**********************************************************************************************************************/
   // in 1D decomp, the ranks at the ends do not calculate the sides at all (Dirichlet boundary condition of the simulation)
-  if ((neighbors[ND::W] == MPI_PROC_NULL || neighbors[ND::E] == MPI_PROC_NULL) && tile_size_x <= haloZoneSize) return;
+  if ((neighbors[ND::W] == MPI_PROC_NULL || neighbors[ND::E] == MPI_PROC_NULL) && tile_size_x <= int(haloZoneSize)) return;
   
   //       ________
   //     __|______|___
@@ -517,7 +517,7 @@ void ParallelHeatSolver::run(std::vector<float, AlignedAllocator<float>> &outRes
   /*                                         Scatter initial data.                                                      */
   /**********************************************************************************************************************/
   std::array<MPI_Request, 8> requestsP2P{};
-
+  
   // broadcasting the material and simulation properties
   heater_temp = mMaterialProps.getHeaterTemperature();
   cooler_temp = mMaterialProps.getCoolerTemperature();
