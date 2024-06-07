@@ -318,7 +318,7 @@ void ParallelHeatSolver::initHaloExchange() {
   // halo receive col right int
   MPI_Type_create_subarray(2, local_tile_with_halo_dims.data(), halo_dims_col.data(), halo_receive_start_right.data(), MPI_ORDER_C, MPI_INT, &halo_receive_col_right_type_int);
   MPI_Type_commit(&halo_receive_col_right_type_int);
-  // halo receive col lereceive_ft float
+  // halo receive col left float
   MPI_Type_create_subarray(2, local_tile_with_halo_dims.data(), halo_dims_col.data(), halo_receive_start_left.data(), MPI_ORDER_C, MPI_FLOAT, &halo_receive_col_left_type_float);
   MPI_Type_commit(&halo_receive_col_left_type_float);
   // halo receive col right float
